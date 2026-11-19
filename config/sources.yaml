@@ -1,0 +1,732 @@
+# WorldScope sources: what is collected, from where, and under which terms.
+#
+# Every RSS URL below was fetched live on 2026-11-20 by scripts/check_feeds.py: it
+# answered 200, parsed as RSS/Atom, had recent items, and robots.txt allowed it.
+# Re-run the check any time:  cd backend && uv run python ../scripts/check_feeds.py
+#
+# A source is collected only when `enabled: true`, and only after `review: approved`:
+# the publisher's terms have been read, `terms_url` filled in, and `ownership` confirmed.
+# Sources with an open licence (public domain, OGL, CC BY, GDELT) are pre-approved.
+# All others start as `pending` and are reviewed in Milestone 2 before enabling.
+#
+# Fields
+#   type             rss | official (a government or international body's own feed) | api
+#   ownership        public_broadcaster | state | state_funded | government | intergovernmental
+#                    | private | nonprofit | null (not yet confirmed). Shown to users as a fact,
+#                    so it must be confirmed during review.
+#   is_primary       true when the publisher is itself a party (its statements are primary sources)
+#   storage_policy   link_only | snippet (headline + feed summary + link). Full text is never stored.
+#
+# Iranian outlets (IRNA, Press TV, Tasnim, Tehran Times) were unreachable from the build
+# environment; Iranian reporting arrives through GDELT until a direct feed is verified.
+
+sources:
+- id: gdelt-doc
+  name: GDELT DOC 2.0 API
+  type: api
+  url: https://api.gdeltproject.org/api/v2/doc/doc
+  homepage: https://www.gdeltproject.org
+  publisher_country: null
+  language: multi
+  focus:
+  - global
+  ownership: nonprofit
+  is_primary: false
+  licence: 'GDELT terms: free for any use with citation and link to gdeltproject.org'
+  storage_policy: snippet
+  terms_url: https://www.gdeltproject.org/about.html#termsofuse
+  review: approved
+  enabled: true
+  rate_limit: about 1 request per 5 seconds
+- id: reliefweb
+  name: ReliefWeb API v2 (UN OCHA)
+  type: api
+  url: https://api.reliefweb.int/v2/reports
+  homepage: https://reliefweb.int
+  publisher_country: null
+  language: multi
+  focus:
+  - global
+  - humanitarian
+  ownership: intergovernmental
+  is_primary: false
+  licence: ReliefWeb terms; materials remain owned by their original sources
+  storage_policy: snippet
+  terms_url: https://reliefweb.int/terms-conditions
+  review: pending
+  enabled: false
+  note: Needs a pre-approved appname (RELIEFWEB_APPNAME); see docs/access-requests.md
+- id: newsdata
+  name: NewsData.io (free tier)
+  type: api
+  url: https://newsdata.io/api/1/latest
+  homepage: https://newsdata.io
+  publisher_country: null
+  language: multi
+  focus:
+  - global
+  ownership: private
+  is_primary: false
+  licence: Commercial API; free tier 200 credits/day, 12-hour delay
+  storage_policy: snippet
+  terms_url: https://newsdata.io/terms
+  review: pending
+  enabled: false
+  note: Optional supplement; off by default
+- id: bbc-world
+  name: 'BBC News: World'
+  type: rss
+  url: https://feeds.bbci.co.uk/news/world/rss.xml
+  homepage: https://www.bbc.com/news/world
+  publisher_country: GBR
+  language: en
+  focus:
+  - global
+  ownership: public_broadcaster
+  is_primary: false
+  licence: null
+  storage_policy: snippet
+  terms_url: null
+  review: pending
+  enabled: false
+- id: bbc-asia
+  name: 'BBC News: Asia'
+  type: rss
+  url: https://feeds.bbci.co.uk/news/world/asia/rss.xml
+  homepage: https://www.bbc.com/news/world/asia
+  publisher_country: GBR
+  language: en
+  focus:
+  - asia
+  - central-asia
+  ownership: public_broadcaster
+  is_primary: false
+  licence: null
+  storage_policy: snippet
+  terms_url: null
+  review: pending
+  enabled: false
+- id: aljazeera
+  name: Al Jazeera English
+  type: rss
+  url: https://www.aljazeera.com/xml/rss/all.xml
+  homepage: https://www.aljazeera.com
+  publisher_country: QAT
+  language: en
+  focus:
+  - global
+  - middle-east
+  ownership: state_funded
+  is_primary: false
+  licence: null
+  storage_policy: snippet
+  terms_url: null
+  review: pending
+  enabled: false
+- id: dw-en
+  name: Deutsche Welle (English)
+  type: rss
+  url: https://rss.dw.com/rdf/rss-en-all
+  homepage: https://www.dw.com/en
+  publisher_country: DEU
+  language: en
+  focus:
+  - global
+  - europe
+  ownership: public_broadcaster
+  is_primary: false
+  licence: null
+  storage_policy: snippet
+  terms_url: null
+  review: pending
+  enabled: false
+- id: france24-en
+  name: France 24 (English)
+  type: rss
+  url: https://www.france24.com/en/rss
+  homepage: https://www.france24.com/en
+  publisher_country: FRA
+  language: en
+  focus:
+  - global
+  - africa
+  ownership: public_broadcaster
+  is_primary: false
+  licence: null
+  storage_policy: snippet
+  terms_url: null
+  review: pending
+  enabled: false
+- id: npr-world
+  name: 'NPR: World'
+  type: rss
+  url: https://feeds.npr.org/1004/rss.xml
+  homepage: https://www.npr.org/sections/world
+  publisher_country: USA
+  language: en
+  focus:
+  - global
+  ownership: nonprofit
+  is_primary: false
+  licence: null
+  storage_policy: snippet
+  terms_url: null
+  review: pending
+  enabled: false
+- id: euronews
+  name: Euronews
+  type: rss
+  url: https://www.euronews.com/rss?level=theme&name=news
+  homepage: https://www.euronews.com
+  publisher_country: FRA
+  language: en
+  focus:
+  - europe
+  ownership: private
+  is_primary: false
+  licence: null
+  storage_policy: snippet
+  terms_url: null
+  review: pending
+  enabled: false
+- id: eurasianet
+  name: Eurasianet
+  type: rss
+  url: https://eurasianet.org/rss
+  homepage: https://eurasianet.org
+  publisher_country: USA
+  language: en
+  focus:
+  - central-asia
+  - caucasus
+  ownership: nonprofit
+  is_primary: false
+  licence: null
+  storage_policy: snippet
+  terms_url: null
+  review: pending
+  enabled: false
+- id: thediplomat
+  name: The Diplomat
+  type: rss
+  url: https://thediplomat.com/feed/
+  homepage: https://thediplomat.com
+  publisher_country: USA
+  language: en
+  focus:
+  - asia
+  - central-asia
+  ownership: private
+  is_primary: false
+  licence: null
+  storage_policy: snippet
+  terms_url: null
+  review: pending
+  enabled: false
+- id: timesca
+  name: The Times of Central Asia
+  type: rss
+  url: https://timesca.com/feed/
+  homepage: https://timesca.com
+  publisher_country: KAZ
+  language: en
+  focus:
+  - central-asia
+  ownership: private
+  is_primary: false
+  licence: null
+  storage_policy: snippet
+  terms_url: null
+  review: pending
+  enabled: false
+- id: astana-times
+  name: The Astana Times
+  type: rss
+  url: https://astanatimes.com/feed/
+  homepage: https://astanatimes.com
+  publisher_country: KAZ
+  language: en
+  focus:
+  - central-asia
+  ownership: null
+  is_primary: false
+  licence: null
+  storage_policy: snippet
+  terms_url: null
+  review: pending
+  enabled: false
+- id: kun-uz-en
+  name: Kun.uz (English)
+  type: rss
+  url: https://kun.uz/en/news/rss
+  homepage: https://kun.uz/en
+  publisher_country: UZB
+  language: en
+  focus:
+  - central-asia
+  ownership: private
+  is_primary: false
+  licence: null
+  storage_policy: snippet
+  terms_url: null
+  review: pending
+  enabled: false
+- id: kun-uz-uz
+  name: Kun.uz (Uzbek)
+  type: rss
+  url: https://kun.uz/news/rss
+  homepage: https://kun.uz
+  publisher_country: UZB
+  language: uz
+  focus:
+  - central-asia
+  ownership: private
+  is_primary: false
+  licence: null
+  storage_policy: snippet
+  terms_url: null
+  review: pending
+  enabled: false
+- id: gazeta-uz-ru
+  name: Gazeta.uz (Russian)
+  type: rss
+  url: https://www.gazeta.uz/ru/rss/
+  homepage: https://www.gazeta.uz/ru
+  publisher_country: UZB
+  language: ru
+  focus:
+  - central-asia
+  ownership: private
+  is_primary: false
+  licence: null
+  storage_policy: snippet
+  terms_url: null
+  review: pending
+  enabled: false
+- id: daryo-uz
+  name: Daryo (Uzbek)
+  type: rss
+  url: https://daryo.uz/feed/
+  homepage: https://daryo.uz
+  publisher_country: UZB
+  language: uz
+  focus:
+  - central-asia
+  ownership: private
+  is_primary: false
+  licence: null
+  storage_policy: snippet
+  terms_url: null
+  review: pending
+  enabled: false
+- id: 24kg-en
+  name: 24.kg (English)
+  type: rss
+  url: https://24.kg/english/rss/
+  homepage: https://24.kg/english
+  publisher_country: KGZ
+  language: en
+  focus:
+  - central-asia
+  ownership: private
+  is_primary: false
+  licence: null
+  storage_policy: snippet
+  terms_url: null
+  review: pending
+  enabled: false
+- id: meduza-en
+  name: Meduza (English)
+  type: rss
+  url: https://meduza.io/rss/en/all
+  homepage: https://meduza.io/en
+  publisher_country: LVA
+  language: en
+  focus:
+  - russia
+  ownership: private
+  is_primary: false
+  licence: null
+  storage_policy: snippet
+  terms_url: null
+  review: pending
+  enabled: false
+- id: kyiv-independent
+  name: The Kyiv Independent
+  type: rss
+  url: https://kyivindependent.com/news-archive/rss/
+  homepage: https://kyivindependent.com
+  publisher_country: UKR
+  language: en
+  focus:
+  - ukraine
+  ownership: private
+  is_primary: false
+  licence: null
+  storage_policy: snippet
+  terms_url: null
+  review: pending
+  enabled: false
+- id: ukrinform-en
+  name: Ukrinform (English)
+  type: rss
+  url: https://www.ukrinform.net/rss/block-lastnews
+  homepage: https://www.ukrinform.net
+  publisher_country: UKR
+  language: en
+  focus:
+  - ukraine
+  ownership: state
+  is_primary: false
+  licence: null
+  storage_policy: snippet
+  terms_url: null
+  review: pending
+  enabled: false
+- id: japan-times
+  name: The Japan Times
+  type: rss
+  url: https://www.japantimes.co.jp/feed/
+  homepage: https://www.japantimes.co.jp
+  publisher_country: JPN
+  language: en
+  focus:
+  - asia
+  ownership: private
+  is_primary: false
+  licence: null
+  storage_policy: snippet
+  terms_url: null
+  review: pending
+  enabled: false
+- id: mercopress
+  name: MercoPress
+  type: rss
+  url: https://en.mercopress.com/rss/
+  homepage: https://en.mercopress.com
+  publisher_country: URY
+  language: en
+  focus:
+  - latin-america
+  ownership: private
+  is_primary: false
+  licence: null
+  storage_policy: snippet
+  terms_url: null
+  review: pending
+  enabled: false
+- id: un-news
+  name: UN News
+  type: official
+  url: https://news.un.org/feed/subscribe/en/news/all/rss.xml
+  homepage: https://news.un.org/en
+  publisher_country: USA
+  language: en
+  focus:
+  - global
+  ownership: intergovernmental
+  is_primary: true
+  licence: null
+  storage_policy: snippet
+  terms_url: null
+  review: pending
+  enabled: false
+- id: un-news-asia-pacific
+  name: 'UN News: Asia Pacific'
+  type: official
+  url: https://news.un.org/feed/subscribe/en/news/region/asia-pacific/feed/rss.xml
+  homepage: https://news.un.org/en
+  publisher_country: USA
+  language: en
+  focus:
+  - asia
+  - central-asia
+  ownership: intergovernmental
+  is_primary: true
+  licence: null
+  storage_policy: snippet
+  terms_url: null
+  review: pending
+  enabled: false
+- id: uk-fcdo
+  name: UK Foreign, Commonwealth & Development Office
+  type: official
+  url: https://www.gov.uk/government/organisations/foreign-commonwealth-development-office.atom
+  homepage: https://www.gov.uk/government/organisations/foreign-commonwealth-development-office
+  publisher_country: GBR
+  language: en
+  focus:
+  - global
+  ownership: government
+  is_primary: true
+  licence: Open Government Licence v3.0
+  storage_policy: snippet
+  terms_url: null
+  review: approved
+  enabled: true
+- id: kremlin-en
+  name: 'President of Russia: events'
+  type: official
+  url: http://en.kremlin.ru/events/all/feed
+  homepage: http://en.kremlin.ru
+  publisher_country: RUS
+  language: en
+  focus:
+  - russia
+  ownership: government
+  is_primary: true
+  licence: CC BY 4.0
+  storage_policy: snippet
+  terms_url: null
+  review: approved
+  enabled: true
+- id: cisa-advisories
+  name: CISA cybersecurity advisories
+  type: official
+  url: https://www.cisa.gov/cybersecurity-advisories/all.xml
+  homepage: https://www.cisa.gov
+  publisher_country: USA
+  language: en
+  focus:
+  - global
+  - cyber
+  ownership: government
+  is_primary: true
+  licence: Public domain (US federal government work)
+  storage_policy: snippet
+  terms_url: null
+  review: approved
+  enabled: true
+- id: eia-today
+  name: 'US EIA: Today in Energy'
+  type: official
+  url: https://www.eia.gov/rss/todayinenergy.xml
+  homepage: https://www.eia.gov/todayinenergy/
+  publisher_country: USA
+  language: en
+  focus:
+  - global
+  - energy
+  ownership: government
+  is_primary: true
+  licence: Public domain (US federal government work)
+  storage_policy: snippet
+  terms_url: null
+  review: approved
+  enabled: true
+- id: crisisgroup
+  name: International Crisis Group
+  type: rss
+  url: https://www.crisisgroup.org/rss.xml
+  homepage: https://www.crisisgroup.org
+  publisher_country: BEL
+  language: en
+  focus:
+  - global
+  - conflict
+  ownership: nonprofit
+  is_primary: false
+  licence: null
+  storage_policy: snippet
+  terms_url: null
+  review: pending
+  enabled: false
+- id: jpost
+  name: The Jerusalem Post
+  type: rss
+  url: https://www.jpost.com/rss/rssfeedsfrontpage.aspx
+  homepage: https://www.jpost.com
+  publisher_country: ISR
+  language: en
+  focus:
+  - middle-east
+  ownership: private
+  is_primary: false
+  licence: null
+  storage_policy: snippet
+  terms_url: null
+  review: pending
+  enabled: false
+- id: cgtn-world
+  name: 'CGTN: World'
+  type: rss
+  url: https://www.cgtn.com/subscribe/rss/section/world.xml
+  homepage: https://www.cgtn.com
+  publisher_country: CHN
+  language: en
+  focus:
+  - global
+  - china
+  ownership: state
+  is_primary: false
+  licence: null
+  storage_policy: snippet
+  terms_url: null
+  review: pending
+  enabled: false
+- id: scmp-china
+  name: 'South China Morning Post: China'
+  type: rss
+  url: https://www.scmp.com/rss/4/feed
+  homepage: https://www.scmp.com
+  publisher_country: HKG
+  language: en
+  focus:
+  - china
+  - asia
+  ownership: private
+  is_primary: false
+  licence: null
+  storage_policy: snippet
+  terms_url: null
+  review: pending
+  enabled: false
+- id: dawn
+  name: Dawn
+  type: rss
+  url: https://www.dawn.com/feeds/home
+  homepage: https://www.dawn.com
+  publisher_country: PAK
+  language: en
+  focus:
+  - south-asia
+  - afghanistan
+  ownership: private
+  is_primary: false
+  licence: null
+  storage_policy: snippet
+  terms_url: null
+  review: pending
+  enabled: false
+- id: the-hindu-intl
+  name: 'The Hindu: International'
+  type: rss
+  url: https://www.thehindu.com/news/international/feeder/default.rss
+  homepage: https://www.thehindu.com/news/international/
+  publisher_country: IND
+  language: en
+  focus:
+  - global
+  - south-asia
+  ownership: private
+  is_primary: false
+  licence: null
+  storage_policy: snippet
+  terms_url: null
+  review: pending
+  enabled: false
+- id: allafrica
+  name: 'AllAfrica: latest headlines'
+  type: rss
+  url: https://allafrica.com/tools/headlines/rdf/latest/headlines.rdf
+  homepage: https://allafrica.com
+  publisher_country: ZAF
+  language: en
+  focus:
+  - africa
+  ownership: private
+  is_primary: false
+  licence: null
+  storage_policy: snippet
+  terms_url: null
+  review: pending
+  enabled: false
+- id: akipress
+  name: AKIpress (English)
+  type: rss
+  url: https://akipress.com/rss/news_en.rss
+  homepage: https://akipress.com
+  publisher_country: KGZ
+  language: en
+  focus:
+  - central-asia
+  ownership: private
+  is_primary: false
+  licence: null
+  storage_policy: snippet
+  terms_url: null
+  review: pending
+  enabled: false
+- id: asiaplus-en
+  name: Asia-Plus (English)
+  type: rss
+  url: https://asiaplustj.info/en/rss
+  homepage: https://asiaplustj.info/en
+  publisher_country: TJK
+  language: en
+  focus:
+  - central-asia
+  ownership: private
+  is_primary: false
+  licence: null
+  storage_policy: snippet
+  terms_url: null
+  review: pending
+  enabled: false
+- id: trend-az
+  name: Trend News Agency (English)
+  type: rss
+  url: https://en.trend.az/feeds/index.rss
+  homepage: https://en.trend.az
+  publisher_country: AZE
+  language: en
+  focus:
+  - caucasus
+  - central-asia
+  ownership: null
+  is_primary: false
+  licence: null
+  storage_policy: snippet
+  terms_url: null
+  review: pending
+  enabled: false
+- id: anadolu-en
+  name: Anadolu Agency (English)
+  type: rss
+  url: https://www.aa.com.tr/en/rss/default?cat=guncel
+  homepage: https://www.aa.com.tr/en
+  publisher_country: TUR
+  language: en
+  focus:
+  - global
+  - middle-east
+  ownership: state
+  is_primary: false
+  licence: null
+  storage_policy: snippet
+  terms_url: null
+  review: pending
+  enabled: false
+- id: tass-en
+  name: TASS (English)
+  type: rss
+  url: https://tass.com/rss/v2.xml
+  homepage: https://tass.com
+  publisher_country: RUS
+  language: en
+  focus:
+  - russia
+  - global
+  ownership: state
+  is_primary: false
+  licence: null
+  storage_policy: snippet
+  terms_url: null
+  review: pending
+  enabled: false
+- id: un-press
+  name: UN Meetings Coverage and Press Releases
+  type: official
+  url: https://press.un.org/en/rss.xml
+  homepage: https://press.un.org/en
+  publisher_country: USA
+  language: en
+  focus:
+  - global
+  ownership: intergovernmental
+  is_primary: true
+  licence: null
+  storage_policy: snippet
+  terms_url: null
+  review: pending
+  enabled: false

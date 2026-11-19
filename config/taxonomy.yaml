@@ -1,0 +1,59 @@
+# Categories and regions used to classify articles and events.
+# Seeded into the `topics` and `regions` tables in Milestone 2.
+
+categories:
+  - slug: geopolitics
+    name: Geopolitics
+    covers: Power relations between states, alliances, spheres of influence, strategy
+  - slug: diplomacy
+    name: Diplomacy
+    covers: Official visits, talks, agreements, statements between governments and international bodies
+  - slug: conflict
+    name: Conflict
+    covers: Armed conflict, attacks, ceasefires, border clashes, civil unrest
+  - slug: defense
+    name: Defense
+    covers: Armed forces, procurement, exercises, doctrine, defense budgets
+  - slug: economy
+    name: Economy
+    covers: Growth, inflation, monetary policy, markets, public finances
+  - slug: trade
+    name: Trade
+    covers: Trade flows, tariffs, sanctions on trade, supply chains, trade agreements
+  - slug: energy
+    name: Energy
+    covers: Oil, gas, power, nuclear energy, energy infrastructure and prices
+  - slug: technology
+    name: Technology
+    covers: Technology policy, critical technologies, digital infrastructure, AI
+  - slug: cybersecurity
+    name: Cybersecurity
+    covers: Cyberattacks, vulnerabilities, attribution, cyber policy
+  - slug: environment
+    name: Environment
+    covers: Climate, disasters, water, environmental policy
+  - slug: public-health
+    name: Public health
+    covers: Outbreaks, health systems, health policy
+  - slug: society
+    name: Society
+    covers: Elections, protests, human rights, migration, culture, domestic politics
+
+# Regions follow the UN M49 geoscheme. Country membership is loaded from the official
+# M49 table in Milestone 2 rather than typed by hand. Central Asia is shown on its own
+# throughout the product because it is a primary focus.
+regions:
+  - slug: africa
+    name: Africa
+  - slug: americas
+    name: Americas
+  - slug: asia
+    name: Asia
+  - slug: europe
+    name: Europe
+  - slug: oceania
+    name: Oceania
+  - slug: central-asia
+    name: Central Asia
+    parent: asia
+    countries: [KAZ, KGZ, TJK, TKM, UZB]

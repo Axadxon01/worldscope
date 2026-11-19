@@ -1,0 +1,9 @@
+# Public entry point. Caddy obtains and renews the TLS certificate for {$DOMAIN}.
+{$DOMAIN} {
+	encode zstd gzip
+	header {
+		Strict-Transport-Security "max-age=63072000; includeSubDomains"
+		-Server
+	}
+	reverse_proxy frontend:3000
+}
