@@ -14,10 +14,20 @@ updates:
     groups:
       javascript:
         patterns: ["*"]
+    ignore:
+      # typescript-eslint (used by eslint-config-next) does not support TypeScript 7 yet.
+      - dependency-name: typescript
+        update-types: ["version-update:semver-major"]
   - package-ecosystem: docker
     directories: [/backend, /frontend]
     schedule:
       interval: weekly
+    ignore:
+      # Runtime upgrades are deliberate changes, tested by hand: patch updates only.
+      - dependency-name: python
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
+      - dependency-name: node
+        update-types: ["version-update:semver-major"]
   - package-ecosystem: github-actions
     directory: /
     schedule:
