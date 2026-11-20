@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1.7
 # Next.js standalone build: the runtime image holds only the traced server files.
 
-FROM node:22-alpine AS deps
+FROM node:26-alpine AS deps
 WORKDIR /app
 COPY package.json package-lock.json ./
 # Builds behind a TLS-inspecting proxy can pass its CA certificate as the optional
@@ -12,7 +12,7 @@ RUN --mount=type=cache,target=/root/.npm \
     npm ci --no-audit --no-fund
 
 
-FROM node:22-alpine AS build
+FROM node:26-alpine AS build
 WORKDIR /app
 ENV NEXT_TELEMETRY_DISABLED=1
 COPY --from=deps /app/node_modules ./node_modules
@@ -20,7 +20,7 @@ COPY . .
 RUN npm run build
 
 
-FROM node:22-alpine AS runtime
+FROM node:26-alpine AS runtime
 WORKDIR /app
 ENV NODE_ENV=production \
     NEXT_TELEMETRY_DISABLED=1 \
