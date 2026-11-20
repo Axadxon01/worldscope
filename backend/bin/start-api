@@ -6,10 +6,7 @@
 set -eu
 
 if [ "${RUN_MIGRATIONS_ON_START:-false}" = "true" ]; then
-  echo "Applying database migrations"
-  alembic upgrade head
-  echo "Loading reference data and sources"
-  python -m worldscope.cli sync
+  python -m worldscope.cli prepare
 fi
 
 exec uvicorn --factory worldscope.api.main:app_factory \

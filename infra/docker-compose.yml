@@ -64,7 +64,7 @@ services:
   migrate:
     <<: *backend
     # Schema first, then reference data and the source list from backend/config.
-    command: ["sh", "-c", "alembic upgrade head && python -m worldscope.cli sync"]
+    command: ["python", "-m", "worldscope.cli", "prepare"]
     restart: "no"
     depends_on:
       postgres:
