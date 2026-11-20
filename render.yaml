@@ -36,6 +36,13 @@ services:
       # The API's public URL, e.g. https://worldscope-api.onrender.com
       - key: API_INTERNAL_URL
         sync: false
+      # The API refuses calls that do not carry this key, so only this web app can use
+      # it even though the free plan gives the API a public address.
+      - key: INTERNAL_API_KEY
+        fromService:
+          type: web
+          name: worldscope-api
+          envVarKey: INTERNAL_API_KEY
 
   - type: web
     name: worldscope-api
@@ -67,6 +74,12 @@ services:
           name: worldscope-kv
           property: connectionString
       - key: SECRET_KEY
+        generateValue: true
+      - key: INTERNAL_API_KEY
+        generateValue: true
+      # Enter this at /setup to create the first administrator. Find it on the
+      # worldscope-api service's Environment page. Setup closes once an account exists.
+      - key: SETUP_CODE
         generateValue: true
       - key: LLM_PROVIDER
         value: none

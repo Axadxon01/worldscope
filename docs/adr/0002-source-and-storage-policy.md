@@ -4,12 +4,17 @@ Status: accepted, 2026-11-20
 
 ## Decision
 
-1. Every source lives in `config/sources.yaml` with its type, publisher country,
+1. Every source lives in `backend/config/sources.yaml` with its type, publisher country,
    language, ownership, licence, storage policy and review state.
 2. A source is collected only when `enabled: true`, which requires `review: approved`:
-   its terms have been read, `terms_url` recorded and its ownership confirmed. Sources
-   with an open licence (public domain, Open Government Licence, CC BY, GDELT's terms)
-   are approved on that basis.
+   its terms have been read, `terms_url` and `licence` recorded and its ownership
+   confirmed. The config loader and a database constraint both enforce this. A source
+   is approved when its terms allow showing headline, feed summary and link in another
+   product, commercial use included, or its content carries an open licence (public
+   domain, Open Government Licence, CC BY, GDELT's terms). It is rejected when the terms
+   limit use to personal reading or require the publisher's written permission; it can
+   be reconsidered once permission is granted in writing. Each decision is recorded in
+   `review_note` with the date the terms were read.
 3. We store headline, feed-provided summary, link, publication and retrieval times, and
    derived metadata (language, entities, places, categories). We never store full
    article text, never fetch content behind a paywall or login, and honour robots.txt.
@@ -34,6 +39,16 @@ Assigned by fixed rules, shown on every event with the rule that produced them:
 4. Disputed: a party or another source contradicts it.
 5. Unverified: only unnamed or social-media sourcing is cited.
 6. Analysis: written by the AI analyst or a report; never presented as reporting.
+
+## Review, 20 November 2026
+
+Of the 43 configured sources: 6 approved and enabled (GDELT, UK FCDO, the Kremlin's
+English feed, CISA, US EIA, Ukrinform), 14 rejected (their terms limit use to personal
+reading or need written permission, including Kun.uz, Gazeta.uz, 24.kg, AKIpress,
+Asia-Plus, TASS, Al Jazeera and SCMP) and 23 still pending because their terms pages
+could not be read automatically (BBC, NPR and France 24 block automated reading, among
+others). Reporting from rejected and pending outlets still reaches WorldScope through
+GDELT, as metadata and links.
 
 ## Consequences
 

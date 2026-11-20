@@ -6,9 +6,12 @@ from datetime import UTC, datetime
 
 from celery.signals import worker_ready
 from redis import Redis
+from sqlalchemy import delete
 
 from worldscope.core.config import get_settings
 from worldscope.core.logging import get_logger
+from worldscope.db.models import UserSession
+from worldscope.db.session import get_sync_engine
 from worldscope.tasks.celery_app import celery_app
 
 log = get_logger(__name__)
@@ -41,3 +44,15 @@ def heartbeat_on_start(**_: object) -> None:
     waiting for the first scheduled beat. It goes through the queue on purpose: the
     heartbeat proves tasks are consumed, not just that the process started."""
     heartbeat.delay()
+
+
+@celery_app.task(name="worldscope.tasks.system.purge_expired_sessions")  # type: ignore[untyped-decorator]
+def purge_expired_sessions() -> int:
+    """Delete sessions past their expiry. Expired sessions are already refused when
+    presented; this only keeps the table small."""
+    with get_sync_engine().begin() as conn:
+        removed = conn.execute(
+            delete(UserSession).where(UserSession.expires_at <= datetime.now(UTC))
+        ).rowcount
+    log.info("expired_sessions_purged", count=removed)
+    return int(removed or 0)

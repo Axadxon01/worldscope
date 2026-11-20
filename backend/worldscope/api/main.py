@@ -12,11 +12,13 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from worldscope import __version__
 from worldscope.api.middleware import request_context
-from worldscope.api.routers import health, system
+from worldscope.api.routers import admin, auth, health, library, system
+from worldscope.auth.service import AuthError
 from worldscope.core.config import Settings, get_settings
 from worldscope.core.logging import configure_logging, get_logger
 from worldscope.core.redis import create_redis
 from worldscope.db.session import create_api_engine
+from worldscope.services.bookmarks import BookmarkError
 
 log = get_logger(__name__)
 
@@ -56,9 +58,20 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             allow_origins=settings.cors_origins,
             allow_credentials=True,
             allow_methods=["GET", "POST", "PATCH", "DELETE"],
-            allow_headers=["Content-Type", "X-Request-ID", "X-CSRF-Token"],
+            allow_headers=["Content-Type", "X-Request-ID"],
         )
     app.middleware("http")(request_context)
+
+    @app.exception_handler(AuthError)
+    async def auth_error(_: Request, exc: AuthError) -> JSONResponse:
+        headers = {"Retry-After": str(exc.retry_after)} if exc.retry_after else None
+        return JSONResponse(
+            status_code=exc.status, content={"detail": exc.message}, headers=headers
+        )
+
+    @app.exception_handler(BookmarkError)
+    async def bookmark_error(_: Request, exc: BookmarkError) -> JSONResponse:
+        return JSONResponse(status_code=exc.status, content={"detail": exc.message})
 
     @app.exception_handler(Exception)
     async def unhandled(request: Request, exc: Exception) -> JSONResponse:
@@ -68,6 +81,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     app.include_router(health.router)
     app.include_router(system.router)
+    app.include_router(auth.router)
+    app.include_router(admin.router)
+    app.include_router(library.router)
     return app
 
 

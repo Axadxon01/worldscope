@@ -5,9 +5,14 @@
 # Re-run the check any time:  cd backend && uv run python ../scripts/check_feeds.py
 #
 # A source is collected only when `enabled: true`, and only after `review: approved`:
-# the publisher's terms have been read, `terms_url` filled in, and `ownership` confirmed.
-# Sources with an open licence (public domain, OGL, CC BY, GDELT) are pre-approved.
-# All others start as `pending` and are reviewed in Milestone 2 before enabling.
+# the publisher's terms have been read, `terms_url` and `licence` filled in, and
+# `ownership` confirmed. The loader and the database both refuse anything else.
+#
+# Review rule (ADR 0002): approved when the terms allow showing headline, feed summary
+# and link in another product, commercial use included, or the content carries an open
+# licence. Rejected when the terms limit use to personal reading or need the
+# publisher's written permission. `review_note` says what the terms say and when they
+# were read; a pending note says why the review could not be finished.
 #
 # Fields
 #   type             rss | official (a government or international body's own feed) | api
@@ -56,6 +61,7 @@ sources:
   review: pending
   enabled: false
   note: Needs a pre-approved appname (RELIEFWEB_APPNAME); see docs/access-requests.md
+  review_note: 'Checked 2026-11-20, not yet decided: reliefweb.int/terms-conditions did not load for automated reading. It also needs a pre-approved appname before any call (docs/access-requests.md).'
 - id: newsdata
   name: NewsData.io (free tier)
   type: api
@@ -67,12 +73,13 @@ sources:
   - global
   ownership: private
   is_primary: false
-  licence: Commercial API; free tier 200 credits/day, 12-hour delay
+  licence: 'API licence for personal or internal business use; wider use depends on payment'
   storage_policy: snippet
   terms_url: https://newsdata.io/terms
-  review: pending
+  review: rejected
   enabled: false
   note: Optional supplement; off by default
+  review_note: 'Terms read 2026-11-20. The licence covers personal or internal business use with attribution ("Powered by NewsData.io API"); business use of derived data is conditioned on payment. Not used in the MVP.'
 - id: bbc-world
   name: 'BBC News: World'
   type: rss
@@ -89,6 +96,7 @@ sources:
   terms_url: null
   review: pending
   enabled: false
+  review_note: 'Checked 2026-11-20, not yet decided: The BBC site refuses automated reading, so its feed terms could not be checked here. Review by hand: https://www.bbc.co.uk/news/10628494'
 - id: bbc-asia
   name: 'BBC News: Asia'
   type: rss
@@ -106,6 +114,7 @@ sources:
   terms_url: null
   review: pending
   enabled: false
+  review_note: 'Checked 2026-11-20, not yet decided: The BBC site refuses automated reading, so its feed terms could not be checked here. Review by hand: https://www.bbc.co.uk/news/10628494'
 - id: aljazeera
   name: Al Jazeera English
   type: rss
@@ -118,11 +127,12 @@ sources:
   - middle-east
   ownership: state_funded
   is_primary: false
-  licence: null
+  licence: 'Personal, non-commercial use only; copying or distribution needs written permission'
   storage_policy: snippet
-  terms_url: null
-  review: pending
+  terms_url: https://www.aljazeera.com/terms-and-conditions
+  review: rejected
   enabled: false
+  review_note: 'Terms read 2026-11-20. Use is limited to personal, non-commercial purposes; copying, distribution and text or data mining need written permission from Al Jazeera.'
 - id: dw-en
   name: Deutsche Welle (English)
   type: rss
@@ -140,6 +150,7 @@ sources:
   terms_url: null
   review: pending
   enabled: false
+  review_note: 'Checked 2026-11-20, not yet decided: DW''s feed terms page could not be found automatically. Review by hand.'
 - id: france24-en
   name: France 24 (English)
   type: rss
@@ -157,6 +168,7 @@ sources:
   terms_url: null
   review: pending
   enabled: false
+  review_note: 'Checked 2026-11-20, not yet decided: France 24''s robots.txt blocks automated reading of its terms. Review by hand.'
 - id: npr-world
   name: 'NPR: World'
   type: rss
@@ -173,6 +185,7 @@ sources:
   terms_url: null
   review: pending
   enabled: false
+  review_note: 'Checked 2026-11-20, not yet decided: NPR''s robots.txt blocks automated reading of its terms page. Review by hand: https://www.npr.org/about-npr/179876898/terms-of-use'
 - id: euronews
   name: Euronews
   type: rss
@@ -184,11 +197,12 @@ sources:
   - europe
   ownership: private
   is_primary: false
-  licence: null
+  licence: 'Personal use only; use on any other website is prohibited'
   storage_policy: snippet
-  terms_url: null
-  review: pending
+  terms_url: https://www.euronews.com/terms-and-conditions
+  review: rejected
   enabled: false
+  review_note: 'Terms read 2026-11-20. Material may be downloaded for personal use only, and its use on any other website is prohibited without permission.'
 - id: eurasianet
   name: Eurasianet
   type: rss
@@ -206,6 +220,7 @@ sources:
   terms_url: null
   review: pending
   enabled: false
+  review_note: 'Checked 2026-11-20, not yet decided: The terms page could not be read automatically. Review by hand.'
 - id: thediplomat
   name: The Diplomat
   type: rss
@@ -223,6 +238,7 @@ sources:
   terms_url: null
   review: pending
   enabled: false
+  review_note: 'Checked 2026-11-20, not yet decided: The terms page could not be read automatically. Review by hand.'
 - id: timesca
   name: The Times of Central Asia
   type: rss
@@ -234,11 +250,12 @@ sources:
   - central-asia
   ownership: private
   is_primary: false
-  licence: null
+  licence: 'Personal, non-commercial use only'
   storage_policy: snippet
-  terms_url: null
-  review: pending
+  terms_url: https://timesca.com/contact-us/terms-of-service/
+  review: rejected
   enabled: false
+  review_note: 'Terms read 2026-11-20. Content is for personal, non-commercial use; copying or storing it for other purposes needs prior written permission.'
 - id: astana-times
   name: The Astana Times
   type: rss
@@ -255,6 +272,7 @@ sources:
   terms_url: null
   review: pending
   enabled: false
+  review_note: 'Checked 2026-11-20, not yet decided: The site shows only a copyright line and no reuse terms; ownership is not stated. Review by hand.'
 - id: kun-uz-en
   name: Kun.uz (English)
   type: rss
@@ -266,11 +284,12 @@ sources:
   - central-asia
   ownership: private
   is_primary: false
-  licence: null
+  licence: 'Reproduction needs written consent of the editors'
   storage_policy: snippet
-  terms_url: null
-  review: pending
+  terms_url: https://kun.uz/page/about
+  review: rejected
   enabled: false
+  review_note: 'Terms read 2026-11-20. Reproduction and distribution are allowed only with the written consent of the Kun.uz editors. Worth asking them for permission.'
 - id: kun-uz-uz
   name: Kun.uz (Uzbek)
   type: rss
@@ -282,11 +301,12 @@ sources:
   - central-asia
   ownership: private
   is_primary: false
-  licence: null
+  licence: 'Reproduction needs written consent of the editors'
   storage_policy: snippet
-  terms_url: null
-  review: pending
+  terms_url: https://kun.uz/page/about
+  review: rejected
   enabled: false
+  review_note: 'Terms read 2026-11-20. Reproduction and distribution are allowed only with the written consent of the Kun.uz editors. Worth asking them for permission.'
 - id: gazeta-uz-ru
   name: Gazeta.uz (Russian)
   type: rss
@@ -298,11 +318,12 @@ sources:
   - central-asia
   ownership: private
   is_primary: false
-  licence: null
+  licence: 'Any use needs prior written permission of the editors'
   storage_policy: snippet
-  terms_url: null
-  review: pending
+  terms_url: https://www.gazeta.uz/ru/
+  review: rejected
   enabled: false
+  review_note: 'Terms read 2026-11-20. Reproduction, distribution or other use of site information needs prior written permission from the editors (site footer). Worth asking them for permission.'
 - id: daryo-uz
   name: Daryo (Uzbek)
   type: rss
@@ -319,6 +340,7 @@ sources:
   terms_url: null
   review: pending
   enabled: false
+  review_note: 'Checked 2026-11-20, not yet decided: The terms page (daryo.uz/foydalanish-shartlari) did not load for automated reading. Review by hand.'
 - id: 24kg-en
   name: 24.kg (English)
   type: rss
@@ -330,11 +352,12 @@ sources:
   - central-asia
   ownership: private
   is_primary: false
-  licence: null
+  licence: 'Personal use only; distribution needs written permission'
   storage_policy: snippet
-  terms_url: null
-  review: pending
+  terms_url: https://24.kg/english/
+  review: rejected
   enabled: false
+  review_note: 'Terms read 2026-11-20. Site content is for personal use only and may not be distributed without written permission from 24.kg.'
 - id: meduza-en
   name: Meduza (English)
   type: rss
@@ -346,11 +369,12 @@ sources:
   - russia
   ownership: private
   is_primary: false
-  licence: null
+  licence: 'All rights reserved except selected pieces released under CC BY'
   storage_policy: snippet
-  terms_url: null
-  review: pending
+  terms_url: https://meduza.io/en/pages/about
+  review: rejected
   enabled: false
+  review_note: 'Terms read 2026-11-20. Republishing needs approval from the newsroom, except selected materials released under CC BY (currently the war-in-Ukraine coverage). The full feed mixes both, so it is not used.'
 - id: kyiv-independent
   name: The Kyiv Independent
   type: rss
@@ -367,6 +391,7 @@ sources:
   terms_url: null
   review: pending
   enabled: false
+  review_note: 'Checked 2026-11-20, not yet decided: The terms page could not be read automatically. Review by hand.'
 - id: ukrinform-en
   name: Ukrinform (English)
   type: rss
@@ -378,11 +403,12 @@ sources:
   - ukraine
   ownership: state
   is_primary: false
-  licence: null
+  licence: 'Use allowed with a link to ukrinform.net no lower than the first paragraph'
   storage_policy: snippet
-  terms_url: null
-  review: pending
-  enabled: false
+  terms_url: https://www.ukrinform.net/
+  review: approved
+  enabled: true
+  review_note: 'Terms read 2026-11-20. The site notice makes a link to ukrinform.net mandatory when citing or using its materials; WorldScope shows every item with its link first. Ukrinform is the Ukrainian state news agency.'
 - id: japan-times
   name: The Japan Times
   type: rss
@@ -399,6 +425,7 @@ sources:
   terms_url: null
   review: pending
   enabled: false
+  review_note: 'Checked 2026-11-20, not yet decided: The terms page could not be read automatically. Review by hand.'
 - id: mercopress
   name: MercoPress
   type: rss
@@ -415,6 +442,7 @@ sources:
   terms_url: null
   review: pending
   enabled: false
+  review_note: 'Checked 2026-11-20, not yet decided: The site shows only a copyright line; its RSS page may state terms. Review by hand.'
 - id: un-news
   name: UN News
   type: official
@@ -431,6 +459,7 @@ sources:
   terms_url: null
   review: pending
   enabled: false
+  review_note: 'Checked 2026-11-20, not yet decided: UN website terms are reported to allow personal, non-commercial use only; UN News may have its own media policy. un.org pages did not load for automated reading. Review by hand.'
 - id: un-news-asia-pacific
   name: 'UN News: Asia Pacific'
   type: official
@@ -448,6 +477,7 @@ sources:
   terms_url: null
   review: pending
   enabled: false
+  review_note: 'Checked 2026-11-20, not yet decided: UN website terms are reported to allow personal, non-commercial use only; UN News may have its own media policy. un.org pages did not load for automated reading. Review by hand.'
 - id: uk-fcdo
   name: UK Foreign, Commonwealth & Development Office
   type: official
@@ -461,9 +491,10 @@ sources:
   is_primary: true
   licence: Open Government Licence v3.0
   storage_policy: snippet
-  terms_url: null
+  terms_url: https://www.gov.uk/help/terms-conditions
   review: approved
   enabled: true
+  review_note: 'GOV.UK content is under the Open Government Licence v3.0 except where stated; attribute the source.'
 - id: kremlin-en
   name: 'President of Russia: events'
   type: official
@@ -477,9 +508,10 @@ sources:
   is_primary: true
   licence: CC BY 4.0
   storage_policy: snippet
-  terms_url: null
+  terms_url: http://en.kremlin.ru/about/copyrights
   review: approved
   enabled: true
+  review_note: 'All site content is CC BY 4.0; reuse must reference the original source. RIA Novosti and TASS photos are excluded (we store no images).'
 - id: cisa-advisories
   name: CISA cybersecurity advisories
   type: official
@@ -494,9 +526,10 @@ sources:
   is_primary: true
   licence: Public domain (US federal government work)
   storage_policy: snippet
-  terms_url: null
+  terms_url: https://www.cisa.gov/notification
   review: approved
   enabled: true
+  review_note: 'US federal work (17 U.S.C. 105). cisa.gov content is TLP:CLEAR and may be shared without restriction; the CISA logo may not be used.'
 - id: eia-today
   name: 'US EIA: Today in Energy'
   type: official
@@ -511,9 +544,10 @@ sources:
   is_primary: true
   licence: Public domain (US federal government work)
   storage_policy: snippet
-  terms_url: null
+  terms_url: https://www.eia.gov/about/copyrights_reuse.php
   review: approved
   enabled: true
+  review_note: 'Public domain; EIA asks for attribution with the publication date. Third-party material and photographs are excluded (we store no images).'
 - id: crisisgroup
   name: International Crisis Group
   type: rss
@@ -531,6 +565,7 @@ sources:
   terms_url: null
   review: pending
   enabled: false
+  review_note: 'Checked 2026-11-20, not yet decided: Crisis Group owns its content; the reuse rules are in Terms of Use, which did not load. Review by hand: https://www.crisisgroup.org/legal'
 - id: jpost
   name: The Jerusalem Post
   type: rss
@@ -547,6 +582,7 @@ sources:
   terms_url: null
   review: pending
   enabled: false
+  review_note: 'Checked 2026-11-20, not yet decided: The terms page could not be read automatically. Review by hand.'
 - id: cgtn-world
   name: 'CGTN: World'
   type: rss
@@ -564,6 +600,7 @@ sources:
   terms_url: null
   review: pending
   enabled: false
+  review_note: 'Checked 2026-11-20, not yet decided: The terms page could not be read automatically. Review by hand.'
 - id: scmp-china
   name: 'South China Morning Post: China'
   type: rss
@@ -576,11 +613,12 @@ sources:
   - asia
   ownership: private
   is_primary: false
-  licence: null
+  licence: 'Personal, non-commercial use only; automated access prohibited'
   storage_policy: snippet
-  terms_url: null
-  review: pending
+  terms_url: https://www.scmp.com/terms-conditions
+  review: rejected
   enabled: false
+  review_note: 'Terms read 2026-11-20. Use is personal and non-commercial only; automated access and reuse of extracts need SCMP written permission.'
 - id: dawn
   name: Dawn
   type: rss
@@ -598,6 +636,7 @@ sources:
   terms_url: null
   review: pending
   enabled: false
+  review_note: 'Checked 2026-11-20, not yet decided: The terms page could not be read automatically. Review by hand.'
 - id: the-hindu-intl
   name: 'The Hindu: International'
   type: rss
@@ -615,6 +654,7 @@ sources:
   terms_url: null
   review: pending
   enabled: false
+  review_note: 'Checked 2026-11-20, not yet decided: The Hindu site refuses automated reading. Review by hand.'
 - id: allafrica
   name: 'AllAfrica: latest headlines'
   type: rss
@@ -631,6 +671,7 @@ sources:
   terms_url: null
   review: pending
   enabled: false
+  review_note: 'Checked 2026-11-20, not yet decided: The terms page could not be read automatically. Review by hand.'
 - id: akipress
   name: AKIpress (English)
   type: rss
@@ -642,11 +683,12 @@ sources:
   - central-asia
   ownership: private
   is_primary: false
-  licence: null
+  licence: 'Republication needs a written agreement; citations need a link'
   storage_policy: snippet
-  terms_url: null
-  review: pending
+  terms_url: https://akipress.com/
+  review: rejected
   enabled: false
+  review_note: 'Terms read 2026-11-20. Republication of any material needs a written agreement with AKIpress; citations must link to akipress.com.'
 - id: asiaplus-en
   name: Asia-Plus (English)
   type: rss
@@ -658,11 +700,12 @@ sources:
   - central-asia
   ownership: private
   is_primary: false
-  licence: null
+  licence: 'Reproduction needs written permission; use needs a full link'
   storage_policy: snippet
-  terms_url: null
-  review: pending
+  terms_url: https://asiaplus.news/en/homepage-en/
+  review: rejected
   enabled: false
+  review_note: 'Terms read 2026-11-20. Reproduction or distribution in any form needs written permission from the media group. The site has moved to asiaplus.news.'
 - id: trend-az
   name: Trend News Agency (English)
   type: rss
@@ -675,11 +718,12 @@ sources:
   - central-asia
   ownership: null
   is_primary: false
-  licence: null
+  licence: 'Feed may be shown as-is but not archived or used commercially without a licence'
   storage_policy: snippet
-  terms_url: null
-  review: pending
+  terms_url: https://www.trend.az/copyright
+  review: rejected
   enabled: false
+  review_note: 'Terms read 2026-11-20. The feed may be republished exactly as provided, but not archived and not used for commercial gain without a licence. WorldScope keeps items, so it is not used.'
 - id: anadolu-en
   name: Anadolu Agency (English)
   type: rss
@@ -697,6 +741,7 @@ sources:
   terms_url: null
   review: pending
   enabled: false
+  review_note: 'Checked 2026-11-20, not yet decided: The home page has no reuse terms; its Information Policy and subscription pages need reading. Review by hand.'
 - id: tass-en
   name: TASS (English)
   type: rss
@@ -709,11 +754,12 @@ sources:
   - global
   ownership: state
   is_primary: false
-  licence: null
+  licence: 'Commercial use prohibited; use in RSS feeds needs an agreement'
   storage_policy: snippet
-  terms_url: null
-  review: pending
+  terms_url: https://tass.com/terms-of-use
+  review: rejected
   enabled: false
+  review_note: 'Terms read 2026-11-20. Using TASS text, including headlines, in RSS feeds needs written consent or an agreement, and commercial use is prohibited.'
 - id: un-press
   name: UN Meetings Coverage and Press Releases
   type: official
@@ -730,3 +776,4 @@ sources:
   terms_url: null
   review: pending
   enabled: false
+  review_note: 'Checked 2026-11-20, not yet decided: UN website terms are reported to allow personal, non-commercial use only. un.org pages did not load for automated reading. Review by hand.'

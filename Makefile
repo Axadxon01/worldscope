@@ -41,7 +41,7 @@ test-frontend: ## Frontend: eslint and TypeScript
 
 test-integration: .env ## Backend tests against the running stack's PostgreSQL and Redis (separate test database)
 	$(COMPOSE) up --detach --wait postgres redis
-	$(COMPOSE) exec -T postgres sh -c 'psql -U "$$POSTGRES_USER" -d "$$POSTGRES_DB" -tc "SELECT 1 FROM pg_database WHERE datname = '"'"'worldscope_test'"'"'" | grep -q 1 || createdb -U "$$POSTGRES_USER" worldscope_test'
+	$(COMPOSE) exec -T -e APP_DB_NAME=worldscope_test postgres /docker-entrypoint-initdb.d/10-app-role.sh
 	set -a && . ./.env && set +a && cd backend && \
 	  WORLDSCOPE_INTEGRATION=1 ENVIRONMENT=test LLM_PROVIDER=fake \
 	  DATABASE_URL="postgresql+psycopg://$$POSTGRES_USER:$$POSTGRES_PASSWORD@127.0.0.1:$$POSTGRES_PORT/worldscope_test" \

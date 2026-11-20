@@ -14,8 +14,21 @@ BASE: dict[str, Any] = {
 }
 
 
+PRODUCTION: dict[str, Any] = {"environment": "production", "internal_api_key": "k" * 40}
+
+ENV_KEYS = (
+    "DATABASE_URL",
+    "REDIS_URL",
+    "SECRET_KEY",
+    "ENVIRONMENT",
+    "LLM_PROVIDER",
+    "INTERNAL_API_KEY",
+    "SETUP_CODE",
+)
+
+
 def build(monkeypatch: pytest.MonkeyPatch, **overrides: Any) -> Settings:
-    for key in ("DATABASE_URL", "REDIS_URL", "SECRET_KEY", "ENVIRONMENT", "LLM_PROVIDER"):
+    for key in ENV_KEYS:
         monkeypatch.delenv(key, raising=False)
     values: dict[str, Any] = {**BASE, **overrides}
     return Settings(_env_file=None, **values)
@@ -62,19 +75,23 @@ def test_development_allows_missing_llm_key(monkeypatch: pytest.MonkeyPatch) -> 
         ({"llm_provider": "fake"}, "tests only"),
         ({"llm_provider": "anthropic"}, "ANTHROPIC_API_KEY"),
         ({"anthropic_api_key": "k", "cors_origins": "*"}, "CORS_ORIGINS"),
+        ({"llm_provider": "none", "internal_api_key": None}, "INTERNAL_API_KEY"),
+        ({"llm_provider": "none", "internal_api_key": "short"}, "INTERNAL_API_KEY"),
+        ({"llm_provider": "none", "setup_code": "short"}, "SETUP_CODE"),
     ],
 )
 def test_production_rules(
     monkeypatch: pytest.MonkeyPatch, overrides: dict[str, str], message: str
 ) -> None:
     with pytest.raises(ValidationError, match=message):
-        build(monkeypatch, environment="production", **overrides)
+        build(monkeypatch, **{**PRODUCTION, **overrides})
 
 
 def test_production_valid(monkeypatch: pytest.MonkeyPatch) -> None:
     settings = build(
         monkeypatch,
-        environment="production",
+        **PRODUCTION,
+        setup_code="s" * 24,
         anthropic_api_key="sk-test",
         cors_origins="https://app.example.org, https://admin.example.org",
     )
@@ -94,5 +111,11 @@ def test_blank_api_key_counts_as_not_set(monkeypatch: pytest.MonkeyPatch) -> Non
 
 
 def test_ai_can_be_turned_off_in_production(monkeypatch: pytest.MonkeyPatch) -> None:
-    settings = build(monkeypatch, environment="production", llm_provider="none")
+    settings = build(monkeypatch, **PRODUCTION, llm_provider="none")
     assert settings.llm_configured is False
+
+
+def test_blank_setup_code_and_key_count_as_not_set(monkeypatch: pytest.MonkeyPatch) -> None:
+    settings = build(monkeypatch, setup_code=" ", internal_api_key="")
+    assert settings.setup_code is None
+    assert settings.internal_api_key is None

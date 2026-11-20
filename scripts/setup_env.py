@@ -25,8 +25,11 @@ def render(template: str) -> str:
 
     replacements = {
         "POSTGRES_PASSWORD": postgres_password,
+        "POSTGRES_ADMIN_PASSWORD": secrets.token_hex(24),
         "REDIS_PASSWORD": redis_password,
         "SECRET_KEY": secret_key,
+        "INTERNAL_API_KEY": secrets.token_hex(32),
+        "SETUP_CODE": secrets.token_urlsafe(18),
     }
     lines = []
     for line in template.splitlines():
@@ -51,6 +54,7 @@ def main() -> int:
     TARGET.write_text(render(EXAMPLE.read_text()))
     TARGET.chmod(0o600)
     print("Created .env with random secrets. Add ANTHROPIC_API_KEY to enable AI features.")
+    print("Create the first administrator at http://localhost:3000/setup with SETUP_CODE from .env.")
     return 0
 
 

@@ -7,6 +7,7 @@ Run scheduler:  celery -A worldscope.tasks.celery_app beat -l INFO
 from __future__ import annotations
 
 from celery import Celery
+from celery.schedules import crontab
 from celery.signals import setup_logging
 
 from worldscope.core.config import get_settings
@@ -35,6 +36,10 @@ def create_celery() -> Celery:
                 "task": "worldscope.tasks.system.heartbeat",
                 "schedule": HEARTBEAT_INTERVAL_SECONDS,
                 "options": {"expires": HEARTBEAT_INTERVAL_SECONDS},
+            },
+            "purge-expired-sessions": {
+                "task": "worldscope.tasks.system.purge_expired_sessions",
+                "schedule": crontab(hour=3, minute=17),
             },
         },
     )

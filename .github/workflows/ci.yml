@@ -23,12 +23,12 @@ jobs:
       postgres:
         image: pgvector/pgvector:pg16
         env:
-          POSTGRES_USER: ci
-          POSTGRES_PASSWORD: ci
-          POSTGRES_DB: worldscope_test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: ci-admin
+          POSTGRES_DB: postgres
         ports: ["5432:5432"]
         options: >-
-          --health-cmd "pg_isready -U ci -d worldscope_test"
+          --health-cmd "pg_isready -U postgres"
           --health-interval 5s --health-timeout 3s --health-retries 20
       redis:
         image: redis:7-alpine
@@ -39,7 +39,9 @@ jobs:
     env:
       WORLDSCOPE_INTEGRATION: "1"
       ENVIRONMENT: test
-      DATABASE_URL: postgresql+psycopg://ci:ci@localhost:5432/worldscope_test
+      # The tests connect as an ordinary role, as the app does in production: superusers
+      # bypass row-level security and would hide isolation bugs.
+      DATABASE_URL: postgresql+psycopg://worldscope:ci@localhost:5432/worldscope_test
       REDIS_URL: redis://localhost:6379/0
       SECRET_KEY: ci-only-secret-key-not-used-anywhere-else-0123
       LLM_PROVIDER: fake
@@ -50,6 +52,17 @@ jobs:
         with:
           version: "0.11.32"
           enable-cache: true
+      - name: Create the app's database role and test database
+        run: ../infra/postgres/init/10-app-role.sh
+        env:
+          PGHOST: localhost
+          PGPASSWORD: ci-admin
+          POSTGRES_USER: postgres
+          APP_DB_USER: worldscope
+          APP_DB_PASSWORD: ci
+          APP_DB_NAME: worldscope_test
+      - name: Country reference data matches Natural Earth
+        run: python3 ../scripts/build_countries.py --check
       - run: uv python install 3.12
       - run: uv sync --frozen
       - run: uv run ruff check .
@@ -104,7 +117,7 @@ jobs:
           -e SECRET_KEY=ci-image-smoke-test-placeholder-value
           -e LLM_PROVIDER=none
           worldscope-backend:ci
-          python -c "from worldscope.api.main import create_app; create_app(); print('ok')"
+          python -c "from worldscope.api.main import create_app; from worldscope.catalog import load_sources; create_app(); print(len(load_sources()), 'sources')"
 
   secrets:
     name: Secret scan

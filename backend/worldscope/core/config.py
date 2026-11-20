@@ -17,6 +17,7 @@ Environment = Literal["development", "test", "production"]
 LLMProviderName = Literal["anthropic", "none", "fake"]
 
 MIN_SECRET_KEY_LENGTH = 32
+MIN_SETUP_CODE_LENGTH = 16
 
 
 class Settings(BaseSettings):
@@ -39,6 +40,18 @@ class Settings(BaseSettings):
 
     cors_origins: Annotated[list[str], NoDecode] = Field(default_factory=list)
 
+    # Shared secret between the web app and the API. Every /api/v1 call except the
+    # status check must carry it, so the API cannot be used directly from the internet
+    # even where it has a public address (Render's free plan). Required in production.
+    internal_api_key: SecretStr | None = None
+    # One-time code that lets the first administrator create their account. Setup
+    # closes for good once any account exists. Unset: setup is closed, use the CLI.
+    setup_code: SecretStr | None = None
+
+    session_idle_days: int = Field(default=7, ge=1, le=30)
+    session_max_days: int = Field(default=30, ge=1, le=90)
+    invitation_days: int = Field(default=7, ge=1, le=30)
+
     # AI provider. Keys stay on the backend and are never sent to the browser.
     llm_provider: LLMProviderName = "anthropic"
     anthropic_api_key: SecretStr | None = None
@@ -59,7 +72,7 @@ class Settings(BaseSettings):
             return [origin.strip() for origin in value.split(",") if origin.strip()]
         return value
 
-    @field_validator("anthropic_api_key", mode="before")
+    @field_validator("anthropic_api_key", "internal_api_key", "setup_code", mode="before")
     @classmethod
     def _blank_is_unset(cls, value: object) -> object:
         # `ANTHROPIC_API_KEY=` in .env means "not set", not "set to an empty key".
@@ -92,6 +105,11 @@ class Settings(BaseSettings):
             raise ValueError("ANTHROPIC_API_KEY is required when LLM_PROVIDER=anthropic")
         if any(origin == "*" for origin in self.cors_origins):
             raise ValueError("CORS_ORIGINS may not contain '*' in production")
+        key = self.internal_api_key.get_secret_value() if self.internal_api_key else ""
+        if len(key) < MIN_SECRET_KEY_LENGTH:
+            raise ValueError("INTERNAL_API_KEY must be 32+ random characters in production")
+        if self.setup_code and len(self.setup_code.get_secret_value()) < MIN_SETUP_CODE_LENGTH:
+            raise ValueError("SETUP_CODE must be 16+ random characters in production")
         return self
 
     @property

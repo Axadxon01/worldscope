@@ -127,6 +127,7 @@ def test_docs_hidden_in_production(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("ENVIRONMENT", "production")
     monkeypatch.setenv("LLM_PROVIDER", "anthropic")
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
+    monkeypatch.setenv("INTERNAL_API_KEY", "i" * 40)
     get_settings.cache_clear()
     client = TestClient(create_app(get_settings()))
     assert client.get("/docs").status_code == 404

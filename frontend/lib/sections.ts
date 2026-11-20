@@ -141,7 +141,7 @@ export const SECTIONS: Section[] = [
       "Watchlists built from keywords, countries, topics and entities",
       "In-app and email alerts, grouped so you are not flooded",
     ],
-    emptyBecause: "Watchlists and alerts arrive in Milestone 10, after sign-in exists.",
+    emptyBecause: "Watchlists and alerts arrive in Milestone 10.",
     milestone: 10,
   },
   {
@@ -151,21 +151,20 @@ export const SECTIONS: Section[] = [
     summary:
       "Where the data comes from: each source's terms, what we store from it, and whether its last fetch worked.",
     willShow: [
-      "Every source with its type, country, language and terms of use",
-      "What is stored from each: link only, or headline and summary",
-      "Last successful fetch and current errors",
+      "Last successful fetch for each source",
+      "Current errors, and sources paused after repeated failures",
     ],
-    emptyBecause: "The reviewed source list is loaded into the database next.",
-    milestone: 2,
+    emptyBecause: "Collection starts in Milestone 3; fetch health appears then.",
+    milestone: 3,
   },
   {
     href: "/settings",
     label: "Settings",
     group: "System",
-    summary: "How the platform is running now, and later your account and alert preferences.",
-    willShow: ["Your account, password and sessions", "Alert delivery preferences"],
-    emptyBecause: "Sign-in and accounts are built next.",
-    milestone: 2,
+    summary: "Your account, the people who can sign in, and how the platform is running.",
+    willShow: ["Alert delivery preferences"],
+    emptyBecause: "Alerts arrive with watchlists.",
+    milestone: 10,
   },
 ];
 

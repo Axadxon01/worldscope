@@ -8,15 +8,15 @@ apart.
 
 ## Status
 
-Milestone 1 of 11 is complete: the project skeleton, running stack, design system and
-CI. Pages exist for all eleven sections and say plainly what will fill them; nothing is
-populated with sample data.
+Milestones 1 and 2 of 11 are complete: the running stack, design system and CI, then the
+database, invite-only accounts and the reviewed source list. Pages exist for all eleven
+sections and say plainly what will fill them; nothing is populated with sample data.
 
 | Milestone | Scope | State |
 | --- | --- | --- |
 | 1 | Architecture, project setup, design system | Done |
-| 2 | Database, accounts, source configuration | Next |
-| 3 | Ingestion (GDELT, RSS, ReliefWeb) | |
+| 2 | Database, accounts, source configuration | Done |
+| 3 | Ingestion (GDELT, RSS, ReliefWeb) | Next |
 | 4 | News feed and filtering | |
 | 5 | Processing: entities, categories, deduplication, event clustering | |
 | 6 | Country profiles and Overview | |
@@ -35,8 +35,30 @@ python3 scripts/setup_env.py   # creates .env with random secrets
 make dev                       # builds and starts everything, waits until healthy
 ```
 
-Then open http://localhost:3000. The status panel at the bottom of the side rail shows
-the API, database, queue, workers and AI provider, each checked live.
+Then open http://localhost:3000/setup and create the first administrator with the
+`SETUP_CODE` from `.env`. Setup closes for good once an account exists; everyone else
+joins through an invitation link the administrator creates under Settings. The status
+panel at the bottom of the side rail shows the API, database, queue, workers and AI
+provider, each checked live.
+
+If you created your stack before Milestone 2, start fresh once: the database now runs
+the app as an ordinary role (so row-level security applies), which only a new volume
+sets up. `docker compose -f infra/docker-compose.yml --env-file .env down -v`, delete
+`.env`, then run the two commands above.
+
+### Accounts and security
+
+- Sign-up is by invitation only. Passwords are hashed with Argon2id and must be at
+  least 12 characters.
+- Sessions are random tokens in an httpOnly, SameSite cookie; the database stores only a
+  keyed hash. A session ends after 7 days without use and after 30 days at most.
+- Five failed sign-ins pause that email for 15 minutes, and each IP address gets 20
+  attempts per 15 minutes. The response never reveals whether an account exists.
+- Browsers never call the API directly. The web app forwards requests with a shared
+  `INTERNAL_API_KEY`, so the API refuses anyone else even when it has a public address.
+- User-owned rows are filtered by user in every query and, underneath, by PostgreSQL
+  row-level security. Tests prove both, connecting as an ordinary role.
+- Security-relevant actions go to an append-only audit log.
 
 AI features stay off until you add `ANTHROPIC_API_KEY` to `.env` and run `make dev`
 again.
@@ -69,16 +91,18 @@ never touched.
 
 ```text
 backend/     FastAPI API, Celery workers and scheduler, Alembic migrations (Python 3.12)
+  config/    sources.yaml (every source and its terms), taxonomy.yaml (categories),
+             countries.csv (Natural Earth, public domain; built by scripts/build_countries.py)
 frontend/    Next.js web app (TypeScript, Tailwind CSS, shadcn/ui)
-config/      sources.yaml (every source and its terms), taxonomy.yaml (categories, regions)
 infra/       Docker Compose for development and production, Caddy configuration
-scripts/     setup_env.py (creates .env), check_feeds.py (verifies every feed live)
+scripts/     setup_env.py (creates .env), check_feeds.py (verifies every feed live),
+             build_countries.py (rebuilds the country reference data)
 docs/        Architecture decisions, access requests
 ```
 
 ## Sources and data policy
 
-Every source is listed in `config/sources.yaml` with its licence and review state. A
+Every source is listed in `backend/config/sources.yaml` with its licence and review state. A
 source is collected only after its terms have been reviewed. WorldScope stores
 headlines, feed summaries and links, never full article text, never content behind a
 paywall, and every item links to its original. See
@@ -134,7 +158,9 @@ turned off (`LLM_PROVIDER=none`); to turn them on, set `LLM_PROVIDER=anthropic` 
 
 To deploy: in the Render Dashboard choose New > Blueprint, select this repository and
 approve the plan, then set `API_INTERNAL_URL` as above. Later pushes to `main` deploy
-automatically.
+automatically. To create the first administrator, open `/setup` on the web app and enter
+`SETUP_CODE`, which Render generates: find it on the `worldscope-api` service's
+Environment page.
 
 ### Moving to an always-on deployment
 

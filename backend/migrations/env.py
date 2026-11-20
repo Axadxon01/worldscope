@@ -8,6 +8,7 @@ from alembic import context
 from sqlalchemy import engine_from_config, pool
 
 from worldscope.core.config import get_settings
+from worldscope.db import models  # noqa: F401 (registers every table on the metadata)
 from worldscope.db.base import Base
 
 config = context.config

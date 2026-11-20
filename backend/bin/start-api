@@ -1,12 +1,15 @@
 #!/bin/sh
 # Starts the API. On hosts without a separate migration step (e.g. Render's free plan,
 # which has no pre-deploy command), set RUN_MIGRATIONS_ON_START=true to apply database
-# migrations first; with a single API instance this is safe.
+# migrations and load reference data and sources first; with a single API instance
+# this is safe. Both steps are idempotent, so a restart repeats them harmlessly.
 set -eu
 
 if [ "${RUN_MIGRATIONS_ON_START:-false}" = "true" ]; then
   echo "Applying database migrations"
   alembic upgrade head
+  echo "Loading reference data and sources"
+  python -m worldscope.cli sync
 fi
 
 exec uvicorn --factory worldscope.api.main:app_factory \

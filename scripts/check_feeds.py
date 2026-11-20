@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check every RSS/Atom source in config/sources.yaml against the live web.
+"""Check every RSS/Atom source in backend/config/sources.yaml against the live web.
 
 For each feed it reports: HTTP status, whether the body parses as RSS or Atom, the
 number of items, the age of the newest item, and whether robots.txt allows fetching
@@ -27,7 +27,7 @@ import yaml
 from defusedxml import ElementTree
 
 ROOT = Path(__file__).resolve().parents[1]
-SOURCES = ROOT / "config" / "sources.yaml"
+SOURCES = ROOT / "backend" / "config" / "sources.yaml"
 USER_AGENT = "WorldScopeBot/0.1 (+https://github.com/Axadxon01/worldscope; feed checker)"
 MAX_BYTES = 5 * 1024 * 1024
 ATOM = "{http://www.w3.org/2005/Atom}"

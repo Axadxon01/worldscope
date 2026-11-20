@@ -21,15 +21,23 @@ services:
   postgres:
     image: pgvector/pgvector:pg16
     environment:
-      POSTGRES_USER: ${POSTGRES_USER:?set POSTGRES_USER in .env}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
-      POSTGRES_DB: ${POSTGRES_DB:?set POSTGRES_DB in .env}
+      # The superuser only runs init/10-app-role.sh. The app connects as its own
+      # ordinary role (POSTGRES_USER in .env), as on managed PostgreSQL, so
+      # row-level security applies to it.
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_ADMIN_PASSWORD:?set POSTGRES_ADMIN_PASSWORD in .env}
+      APP_DB_USER: ${POSTGRES_USER:?set POSTGRES_USER in .env}
+      APP_DB_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      APP_DB_NAME: ${POSTGRES_DB:?set POSTGRES_DB in .env}
     volumes:
       - pgdata:/var/lib/postgresql/data
+      - ./postgres/init:/docker-entrypoint-initdb.d:ro
     ports:
       - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      # Over TCP, so it only passes once initialisation has finished and the server
+      # restarted for real (during init it listens on a socket only).
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U \"$$APP_DB_USER\" -d \"$$APP_DB_NAME\""]
       interval: 5s
       timeout: 3s
       retries: 20
@@ -55,7 +63,8 @@ services:
 
   migrate:
     <<: *backend
-    command: ["alembic", "upgrade", "head"]
+    # Schema first, then reference data and the source list from backend/config.
+    command: ["sh", "-c", "alembic upgrade head && python -m worldscope.cli sync"]
     restart: "no"
     depends_on:
       postgres:
@@ -107,6 +116,7 @@ services:
     image: worldscope-frontend:local
     environment:
       API_INTERNAL_URL: http://api:8000
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:?set INTERNAL_API_KEY in .env}
     depends_on:
       api:
         condition: service_healthy

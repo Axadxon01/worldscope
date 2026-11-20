@@ -33,6 +33,7 @@ WORKDIR /app
 COPY --from=builder /app/.venv /app/.venv
 COPY --chown=app:app alembic.ini ./
 COPY --chown=app:app migrations ./migrations
+COPY --chown=app:app config ./config
 COPY --chown=app:app worldscope ./worldscope
 COPY --chown=app:app bin ./bin
 
