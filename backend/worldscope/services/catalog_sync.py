@@ -11,7 +11,7 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
-from sqlalchemy import Connection, func, select, update
+from sqlalchemy import Connection, func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert
 
 from worldscope.catalog import (
@@ -24,6 +24,7 @@ from worldscope.catalog import (
     load_taxonomy,
     slugify,
 )
+from worldscope.db.base import Base
 from worldscope.db.models import Country, Region, Source, Topic
 
 
@@ -48,6 +49,25 @@ class SyncReport:
             out.append(f"retired sources: {', '.join(self.sources_retired)}")
         out.extend(f"warning: {warning}" for warning in self.warnings)
         return out
+
+
+def _upsert(conn: Connection, model: type[Base], key: str, rows: list[dict[str, object]]) -> None:
+    """One INSERT ... ON CONFLICT for all rows (one round trip, which matters on a
+    hosted database), touching only rows whose values actually changed."""
+    if not rows:
+        return
+    statement = insert(model).values(rows)
+    columns = [name for name in rows[0] if name != key]
+    table = model.__table__
+    conn.execute(
+        statement.on_conflict_do_update(
+            index_elements=[key],
+            set_={**{name: statement.excluded[name] for name in columns}, "updated_at": func.now()},
+            where=or_(
+                *(table.c[name].is_distinct_from(statement.excluded[name]) for name in columns)
+            ),
+        )
+    )
 
 
 def _region_plan(countries: list[CountryRow]) -> tuple[dict[str, str], dict[str, tuple[str, str]]]:
@@ -85,58 +105,45 @@ def sync_reference(conn: Connection, countries: list[CountryRow], taxonomy: Taxo
     report = SyncReport()
     continents, subregions = _region_plan(countries)
 
-    for slug, name in continents.items():
-        conn.execute(
-            insert(Region)
-            .values(slug=slug, name=name, kind="continent", parent_id=None)
-            .on_conflict_do_update(
-                index_elements=[Region.slug],
-                set_={
-                    "name": name,
-                    "kind": "continent",
-                    "parent_id": None,
-                    "updated_at": func.now(),
-                },
-            )
-        )
+    _upsert(
+        conn,
+        Region,
+        "slug",
+        [
+            {"slug": slug, "name": name, "kind": "continent", "parent_id": None}
+            for slug, name in continents.items()
+        ],
+    )
     region_ids = dict(conn.execute(select(Region.slug, Region.id)).all())
-    for slug, (name, continent) in subregions.items():
-        parent = region_ids[continent]
-        conn.execute(
-            insert(Region)
-            .values(slug=slug, name=name, kind="subregion", parent_id=parent)
-            .on_conflict_do_update(
-                index_elements=[Region.slug],
-                set_={
-                    "name": name,
-                    "kind": "subregion",
-                    "parent_id": parent,
-                    "updated_at": func.now(),
-                },
-            )
-        )
+    _upsert(
+        conn,
+        Region,
+        "slug",
+        [
+            {"slug": slug, "name": name, "kind": "subregion", "parent_id": region_ids[continent]}
+            for slug, (name, continent) in subregions.items()
+        ],
+    )
     region_ids = dict(conn.execute(select(Region.slug, Region.id)).all())
 
     members: dict[str, set[str]] = defaultdict(set)
+    country_rows = []
     for row in countries:
         region_slug = _subregion_slug(row, subregions)
         members[region_slug].add(row.iso3)
-        values = {
-            "iso2": row.iso2,
-            "name": row.name_long,
-            "short_name": row.name,
-            "region_id": region_ids[region_slug],
-            "label_lat": row.label_lat,
-            "label_lon": row.label_lon,
-            "wikidata_qid": row.wikidata_qid,
-        }
-        conn.execute(
-            insert(Country)
-            .values(iso3=row.iso3, **values)
-            .on_conflict_do_update(
-                index_elements=[Country.iso3], set_={**values, "updated_at": func.now()}
-            )
+        country_rows.append(
+            {
+                "iso3": row.iso3,
+                "iso2": row.iso2,
+                "name": row.name_long,
+                "short_name": row.name,
+                "region_id": region_ids[region_slug],
+                "label_lat": row.label_lat,
+                "label_lon": row.label_lon,
+                "wikidata_qid": row.wikidata_qid,
+            }
         )
+    _upsert(conn, Country, "iso3", country_rows)
 
     focus_slugs = set()
     for focus in taxonomy.focus_regions:
@@ -151,20 +158,21 @@ def sync_reference(conn: Connection, countries: list[CountryRow], taxonomy: Taxo
         focus_slugs.add(focus.slug)
     conn.execute(update(Region).values(is_focus=Region.slug.in_(focus_slugs)))
 
-    for position, category in enumerate(taxonomy.categories, start=1):
-        values = {
-            "name": category.name,
-            "kind": "category",
-            "description": category.covers,
-            "position": position,
-        }
-        conn.execute(
-            insert(Topic)
-            .values(slug=category.slug, **values)
-            .on_conflict_do_update(
-                index_elements=[Topic.slug], set_={**values, "updated_at": func.now()}
-            )
-        )
+    _upsert(
+        conn,
+        Topic,
+        "slug",
+        [
+            {
+                "slug": category.slug,
+                "name": category.name,
+                "kind": "category",
+                "description": category.covers,
+                "position": position,
+            }
+            for position, category in enumerate(taxonomy.categories, start=1)
+        ],
+    )
 
     known = {row.iso3 for row in countries}
     stale = set(conn.execute(select(Country.iso3)).scalars()) - known
@@ -182,6 +190,7 @@ def sync_reference(conn: Connection, countries: list[CountryRow], taxonomy: Taxo
 
 def _source_values(entry: SourceEntry) -> dict[str, object]:
     return {
+        "slug": entry.id,
         "name": entry.name,
         "type": entry.type,
         "url": str(entry.url),
@@ -212,15 +221,7 @@ def sync_sources(conn: Connection, entries: list[SourceEntry], report: SyncRepor
                 f"sources.yaml, source {entry.id}: "
                 f"unknown publisher_country {entry.publisher_country}"
             )
-    for entry in entries:
-        values = _source_values(entry)
-        conn.execute(
-            insert(Source)
-            .values(slug=entry.id, **values)
-            .on_conflict_do_update(
-                index_elements=[Source.slug], set_={**values, "updated_at": func.now()}
-            )
-        )
+    _upsert(conn, Source, "slug", [_source_values(entry) for entry in entries])
     listed = [entry.id for entry in entries]
     retired = conn.execute(
         update(Source)

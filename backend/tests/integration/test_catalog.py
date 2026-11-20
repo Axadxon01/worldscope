@@ -34,6 +34,8 @@ def test_reference_data_is_loaded(db: Engine) -> None:
 
 
 def test_sync_is_idempotent(db: Engine) -> None:
+    touched = "SELECT max(updated_at) FROM countries"
+    stamp = scalar(db, touched)
     before = scalar(
         db, "SELECT md5(string_agg(slug || enabled::text, ',' ORDER BY slug)) FROM sources"
     )
@@ -44,6 +46,8 @@ def test_sync_is_idempotent(db: Engine) -> None:
     )
     assert before == after
     assert report.sources_retired == []
+    # Unchanged rows are not rewritten.
+    assert scalar(db, touched) == stamp
 
 
 def test_removed_sources_are_retired_not_deleted(db: Engine) -> None:
