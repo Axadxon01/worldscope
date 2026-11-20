@@ -160,3 +160,10 @@ def test_registry_refuses_anthropic_without_key(monkeypatch: pytest.MonkeyPatch)
     get_settings.cache_clear()
     with pytest.raises(LLMError, match="ANTHROPIC_API_KEY"):
         build_llm_provider(get_settings())
+
+
+def test_registry_refuses_when_ai_is_turned_off(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("LLM_PROVIDER", "none")
+    get_settings.cache_clear()
+    with pytest.raises(LLMError, match="turned off"):
+        build_llm_provider(get_settings())

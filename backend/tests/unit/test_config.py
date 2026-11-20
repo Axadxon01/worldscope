@@ -30,9 +30,22 @@ def test_missing_required_value_refuses_to_start(monkeypatch: pytest.MonkeyPatch
     assert missing == {"database_url", "redis_url", "secret_key"}
 
 
-def test_only_psycopg_urls_are_accepted(monkeypatch: pytest.MonkeyPatch) -> None:
-    with pytest.raises(ValidationError, match="postgresql\\+psycopg"):
-        build(monkeypatch, database_url="postgresql://u:p@db/worldscope")
+@pytest.mark.parametrize(
+    "url",
+    [
+        "postgresql://u:p@db:5432/worldscope",
+        "postgres://u:p@db:5432/worldscope",
+        "postgresql+psycopg://u:p@db:5432/worldscope",
+    ],
+)
+def test_platform_postgres_urls_use_psycopg(monkeypatch: pytest.MonkeyPatch, url: str) -> None:
+    settings = build(monkeypatch, database_url=url)
+    assert settings.database_url == "postgresql+psycopg://u:p@db:5432/worldscope"
+
+
+def test_non_postgres_urls_are_refused(monkeypatch: pytest.MonkeyPatch) -> None:
+    with pytest.raises(ValidationError, match="PostgreSQL URL"):
+        build(monkeypatch, database_url="mysql://u:p@db/worldscope")
 
 
 def test_development_allows_missing_llm_key(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -77,4 +90,9 @@ def test_secret_is_not_printed(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_blank_api_key_counts_as_not_set(monkeypatch: pytest.MonkeyPatch) -> None:
     settings = build(monkeypatch, llm_provider="anthropic", anthropic_api_key="  ")
     assert settings.anthropic_api_key is None
+    assert settings.llm_configured is False
+
+
+def test_ai_can_be_turned_off_in_production(monkeypatch: pytest.MonkeyPatch) -> None:
+    settings = build(monkeypatch, environment="production", llm_provider="none")
     assert settings.llm_configured is False

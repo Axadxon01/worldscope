@@ -131,3 +131,10 @@ def test_docs_hidden_in_production(monkeypatch: pytest.MonkeyPatch) -> None:
     client = TestClient(create_app(get_settings()))
     assert client.get("/docs").status_code == 404
     assert client.get("/openapi.json").status_code == 404
+
+
+def test_status_reports_ai_turned_off(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("LLM_PROVIDER", "none")
+    get_settings.cache_clear()
+    body = client_with(FakeSession(), FakeRedis()).get("/api/v1/system/status").json()
+    assert body["llm"] == {"status": "not_configured", "detail": "disabled"}

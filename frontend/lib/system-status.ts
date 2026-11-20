@@ -91,12 +91,19 @@ export function describe(result: StatusResult): StatusLine[] {
           value: s.llm.detail === "anthropic" ? "Claude" : (s.llm.detail ?? "Ready"),
           tone: "good",
         }
-      : {
-          name: "AI provider",
-          value: "API key not set",
-          tone: "neutral",
-          hint: "AI features stay off until ANTHROPIC_API_KEY is set in .env and the API restarts.",
-        };
+      : s.llm.detail === "disabled"
+        ? {
+            name: "AI provider",
+            value: "Turned off",
+            tone: "neutral",
+            hint: "AI features are off (LLM_PROVIDER=none). Set LLM_PROVIDER=anthropic and ANTHROPIC_API_KEY to turn them on.",
+          }
+        : {
+            name: "AI provider",
+            value: "API key not set",
+            tone: "neutral",
+            hint: "AI features stay off until ANTHROPIC_API_KEY is set and the API restarts.",
+          };
 
   return [
     { name: "API", value: `Version ${s.version}`, tone: "good" },

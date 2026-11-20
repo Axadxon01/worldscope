@@ -1,16 +1,16 @@
+import { apiBaseUrl } from "@/lib/api-url";
 import type { StatusResult, SystemStatus } from "@/lib/system-status";
 
 /**
  * Proxies the backend's status endpoint so the browser never needs to know where the
- * API lives. API_INTERNAL_URL is a server-only variable.
+ * API lives (see lib/api-url.ts for the server-only settings).
  */
-const API_URL = process.env.API_INTERNAL_URL ?? "http://localhost:8000";
 const TIMEOUT_MS = 3000;
 
 export async function GET(): Promise<Response> {
   let result: StatusResult;
   try {
-    const response = await fetch(`${API_URL}/api/v1/system/status`, {
+    const response = await fetch(`${apiBaseUrl()}/api/v1/system/status`, {
       cache: "no-store",
       signal: AbortSignal.timeout(TIMEOUT_MS),
       headers: { Accept: "application/json" },

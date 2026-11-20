@@ -1,0 +1,118 @@
+# Render Blueprint for WorldScope Intelligence.
+# Docs: https://render.com/docs/blueprint-spec
+#
+# Layout (all in Frankfurt, the closest Render region to Central Asia):
+#   worldscope         web app (Next.js)      free: sleeps after 15 min idle, ~1 min to wake
+#   worldscope-api     API (FastAPI)          0.5c-512mb: always on, reachable privately
+#   worldscope-worker  Celery worker + beat   0.5c-512mb: background workers have no free plan
+#   worldscope-db      PostgreSQL 16          0.1c-256mb: persistent (free databases expire)
+#   worldscope-kv      Key Value (queue)      free: 25 MB, in memory, fine for queue and cache
+#
+# The database and Key Value accept private-network connections only. AI features stay
+# off (LLM_PROVIDER=none) until you set LLM_PROVIDER=anthropic and ANTHROPIC_API_KEY on
+# worldscope-api and worldscope-worker.
+
+services:
+  - type: web
+    name: worldscope
+    runtime: docker
+    plan: free
+    region: frankfurt
+    dockerfilePath: ./frontend/Dockerfile
+    dockerContext: ./frontend
+    healthCheckPath: /robots.txt
+    buildFilter:
+      paths:
+        - frontend/**
+    envVars:
+      - key: API_INTERNAL_HOSTPORT
+        fromService:
+          type: web
+          name: worldscope-api
+          property: hostport
+
+  - type: web
+    name: worldscope-api
+    runtime: docker
+    plan: 0.5c-512mb
+    region: frankfurt
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    healthCheckPath: /health/ready
+    # Runs before each deploy goes live; a failed migration keeps the old version serving.
+    preDeployCommand: alembic upgrade head
+    buildFilter:
+      paths:
+        - backend/**
+    envVars:
+      - key: ENVIRONMENT
+        value: production
+      - key: LOG_JSON
+        value: "true"
+      - key: DATABASE_URL
+        fromDatabase:
+          name: worldscope-db
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: worldscope-kv
+          property: connectionString
+      - key: SECRET_KEY
+        generateValue: true
+      - key: LLM_PROVIDER
+        value: none
+      - key: AI_DAILY_BUDGET_USD
+        value: "3"
+
+  - type: worker
+    name: worldscope-worker
+    runtime: docker
+    plan: 0.5c-512mb
+    region: frankfurt
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    # One worker process also runs the scheduler (--beat). Keep exactly one instance:
+    # a second instance would schedule every job twice.
+    dockerCommand: celery -A worldscope.tasks.celery_app worker --beat --loglevel=INFO --concurrency=2 --schedule=/tmp/celerybeat-schedule
+    buildFilter:
+      paths:
+        - backend/**
+    envVars:
+      - key: ENVIRONMENT
+        value: production
+      - key: LOG_JSON
+        value: "true"
+      - key: DATABASE_URL
+        fromDatabase:
+          name: worldscope-db
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: worldscope-kv
+          property: connectionString
+      - key: SECRET_KEY
+        fromService:
+          type: web
+          name: worldscope-api
+          envVarKey: SECRET_KEY
+      - key: LLM_PROVIDER
+        value: none
+
+  - type: keyvalue
+    name: worldscope-kv
+    plan: free
+    region: frankfurt
+    # A task queue must never silently drop jobs to free memory.
+    maxmemoryPolicy: noeviction
+    ipAllowList: []
+
+databases:
+  - name: worldscope-db
+    plan: 0.1c-256mb
+    region: frankfurt
+    postgresMajorVersion: "16"
+    databaseName: worldscope
+    user: worldscope
+    ipAllowList: []

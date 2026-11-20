@@ -11,6 +11,8 @@ from worldscope.core.config import Settings
 def build_llm_provider(settings: Settings) -> LLMProvider:
     if settings.llm_provider == "fake":
         return FakeLLMProvider()
+    if settings.llm_provider == "none":
+        raise LLMError("AI features are turned off (LLM_PROVIDER=none)")
     if settings.llm_provider == "anthropic":
         if settings.anthropic_api_key is None:
             raise LLMError("ANTHROPIC_API_KEY is not set; AI features are unavailable")

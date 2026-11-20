@@ -89,6 +89,8 @@ async def check_workers(redis: Redis, key: str, now: datetime | None = None) -> 
 
 
 def check_llm(settings: Settings) -> ComponentStatus:
+    if settings.llm_provider == "none":
+        return ComponentStatus(status="not_configured", detail="disabled")
     if settings.llm_configured:
         return ComponentStatus(status="ok", detail=settings.llm_provider)
     return ComponentStatus(

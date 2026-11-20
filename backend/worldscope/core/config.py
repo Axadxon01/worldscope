@@ -13,7 +13,8 @@ from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 Environment = Literal["development", "test", "production"]
-LLMProviderName = Literal["anthropic", "fake"]
+# "none" turns AI features off on purpose; it is not the same as a missing key.
+LLMProviderName = Literal["anthropic", "none", "fake"]
 
 MIN_SECRET_KEY_LENGTH = 32
 
@@ -66,8 +67,13 @@ class Settings(BaseSettings):
     @field_validator("database_url")
     @classmethod
     def _postgres_only(cls, value: str) -> str:
+        # Hosting platforms (Render, Heroku-style) hand out plain postgres:// URLs;
+        # point them at the psycopg 3 driver this codebase uses everywhere.
+        for prefix in ("postgresql://", "postgres://"):
+            if value.startswith(prefix):
+                value = "postgresql+psycopg://" + value.removeprefix(prefix)
         if not value.startswith("postgresql+psycopg://"):
-            raise ValueError("DATABASE_URL must use the postgresql+psycopg:// driver")
+            raise ValueError("DATABASE_URL must be a PostgreSQL URL (postgresql+psycopg://...)")
         return value
 
     @model_validator(mode="after")
@@ -89,6 +95,8 @@ class Settings(BaseSettings):
     def llm_configured(self) -> bool:
         if self.llm_provider == "fake":
             return True
+        if self.llm_provider == "none":
+            return False
         return self.anthropic_api_key is not None
 
 

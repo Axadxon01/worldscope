@@ -37,4 +37,5 @@ COPY --chown=app:app worldscope ./worldscope
 
 USER app
 EXPOSE 8000
-CMD ["uvicorn", "--factory", "worldscope.api.main:app_factory", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers", "--no-server-header"]
+# Hosting platforms such as Render set PORT; locally it defaults to 8000.
+CMD ["sh", "-c", "exec uvicorn --factory worldscope.api.main:app_factory --host 0.0.0.0 --port ${PORT:-8000} --proxy-headers --no-server-header"]

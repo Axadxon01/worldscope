@@ -101,6 +101,37 @@ Only Caddy is published (ports 80 and 443, automatic HTTPS). The API, database a
 Redis have no public ports. Set `ENVIRONMENT=production` and `ANTHROPIC_API_KEY` in
 `.env`; the backend refuses to start with weak secrets or a missing key.
 
+## Deploy to Render
+
+`render.yaml` describes the whole deployment as a Render Blueprint. Everything runs in
+Frankfurt, the closest Render region to Central Asia:
+
+| Service | Render type | Plan | Monthly cost |
+| --- | --- | --- | --- |
+| `worldscope` (web app) | Web service | Free (sleeps after 15 min idle, about 1 min to wake) | $0 |
+| `worldscope-api` | Web service | 0.5 CPU, 512 MB | $7 |
+| `worldscope-worker` (Celery worker + scheduler) | Background worker | 0.5 CPU, 512 MB | $7 |
+| `worldscope-db` | PostgreSQL 16 | 256 MB | $6 plus storage |
+| `worldscope-kv` (task queue) | Key Value | Free (25 MB, in memory) | $0 |
+
+Prices from [render.com/pricing](https://render.com/pricing), checked 20 November 2026.
+
+How it fits together:
+
+- The database and Key Value accept private-network connections only.
+- The web app reaches the API over Render's private network (`API_INTERNAL_HOSTPORT`),
+  which is why the API is on a paid plan: free services cannot receive private traffic.
+- Migrations run as the API's pre-deploy command; a failed migration keeps the
+  previous version serving.
+- The worker also runs the scheduler (`--beat`), so keep it at exactly one instance.
+- AI features start turned off (`LLM_PROVIDER=none`). To turn them on, set
+  `LLM_PROVIDER=anthropic` and `ANTHROPIC_API_KEY` on both `worldscope-api` and
+  `worldscope-worker`.
+
+To deploy: push this repository to GitHub, then in the Render Dashboard choose
+New > Blueprint, select the repository and approve the plan. Later pushes to `main`
+deploy automatically.
+
 ## Architecture decisions
 
 - [0001: Technology stack](docs/adr/0001-technology-stack.md)
