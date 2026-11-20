@@ -35,7 +35,8 @@ class ComponentStatus(BaseModel):
 
 
 class WorkerStatus(BaseModel):
-    status: Literal["ok", "stale", "unknown"]
+    # "disabled": this deployment runs no workers on purpose (WORKERS_ENABLED=false).
+    status: Literal["ok", "stale", "unknown", "disabled"]
     last_heartbeat_at: datetime | None = None
     age_seconds: int | None = None
 
@@ -69,14 +70,17 @@ async def check_redis(redis: Redis) -> ComponentStatus:
     return ComponentStatus(status="ok")
 
 
-async def check_workers(redis: Redis, key: str, now: datetime | None = None) -> WorkerStatus:
+async def check_workers(
+    redis: Redis, key: str, now: datetime | None = None, *, expected: bool = True
+) -> WorkerStatus:
     now = now or datetime.now(UTC)
+    missing = WorkerStatus(status="unknown" if expected else "disabled")
     try:
         raw = await asyncio.wait_for(redis.get(key), CHECK_TIMEOUT_SECONDS)
     except Exception:
-        return WorkerStatus(status="unknown")
+        return missing
     if raw is None:
-        return WorkerStatus(status="unknown")
+        return missing
     try:
         beat = datetime.fromisoformat(str(raw))
     except ValueError:
@@ -107,14 +111,16 @@ def overall(
 ) -> OverallState:
     if database.status != "ok" or redis.status != "ok":
         return "down"
-    if workers.status != "ok":
+    if workers.status not in ("ok", "disabled"):
         return "degraded"
     return "ok"
 
 
 async def collect_status(session: AsyncSession, redis: Redis, settings: Settings) -> SystemStatus:
     database, cache = await asyncio.gather(check_database(session), check_redis(redis))
-    workers = await check_workers(redis, settings.worker_heartbeat_key)
+    workers = await check_workers(
+        redis, settings.worker_heartbeat_key, expected=settings.workers_enabled
+    )
     return SystemStatus(
         status=overall(database, cache, workers),
         version=__version__,

@@ -103,34 +103,55 @@ Redis have no public ports. Set `ENVIRONMENT=production` and `ANTHROPIC_API_KEY`
 
 ## Deploy to Render
 
-`render.yaml` describes the whole deployment as a Render Blueprint. Everything runs in
-Frankfurt, the closest Render region to Central Asia:
+`render.yaml` describes a free ($0) deployment as a Render Blueprint. Everything runs
+in Frankfurt, the closest Render region to Central Asia:
 
 | Service | Render type | Plan | Monthly cost |
 | --- | --- | --- | --- |
-| `worldscope` (web app) | Web service | Free (sleeps after 15 min idle, about 1 min to wake) | $0 |
-| `worldscope-api` | Web service | 0.5 CPU, 512 MB | $7 |
-| `worldscope-worker` (Celery worker + scheduler) | Background worker | 0.5 CPU, 512 MB | $7 |
-| `worldscope-db` | PostgreSQL 16 | 256 MB | $6 plus storage |
+| `worldscope` (web app) | Web service | Free | $0 |
+| `worldscope-api` | Web service | Free | $0 |
+| `worldscope-db` | PostgreSQL 16 | Free (1 GB, expires 30 days after creation) | $0 |
 | `worldscope-kv` (task queue) | Key Value | Free (25 MB, in memory) | $0 |
 
-Prices from [render.com/pricing](https://render.com/pricing), checked 20 November 2026.
+What the free plan costs in behaviour:
 
-How it fits together:
+- Both web services sleep after 15 minutes without visits and take about a minute to
+  wake. The Settings page says so while the API is waking.
+- There are no background workers (Render has no free plan for them), so nothing is
+  collected on a schedule. The API runs with `WORKERS_ENABLED=false`, and the status
+  page shows workers as "Not deployed" rather than as a fault.
+- The free database is deleted 30 days after it is created, unless you upgrade it
+  before then. Render emails a warning first.
+- There is no pre-deploy command, so the API applies migrations as it starts
+  (`RUN_MIGRATIONS_ON_START=true`, see `backend/bin/start-api`).
+- Free services cannot receive private-network traffic, so the web app reaches the API
+  through its public URL: set `API_INTERNAL_URL` on `worldscope` to the API's
+  `https://...onrender.com` address once the API exists.
 
-- The database and Key Value accept private-network connections only.
-- The web app reaches the API over Render's private network (`API_INTERNAL_HOSTPORT`),
-  which is why the API is on a paid plan: free services cannot receive private traffic.
-- Migrations run as the API's pre-deploy command; a failed migration keeps the
-  previous version serving.
-- The worker also runs the scheduler (`--beat`), so keep it at exactly one instance.
-- AI features start turned off (`LLM_PROVIDER=none`). To turn them on, set
-  `LLM_PROVIDER=anthropic` and `ANTHROPIC_API_KEY` on both `worldscope-api` and
-  `worldscope-worker`.
+The database and Key Value accept private-network connections only. AI features start
+turned off (`LLM_PROVIDER=none`); to turn them on, set `LLM_PROVIDER=anthropic` and
+`ANTHROPIC_API_KEY` on `worldscope-api`.
 
-To deploy: push this repository to GitHub, then in the Render Dashboard choose
-New > Blueprint, select the repository and approve the plan. Later pushes to `main`
-deploy automatically.
+To deploy: in the Render Dashboard choose New > Blueprint, select this repository and
+approve the plan, then set `API_INTERNAL_URL` as above. Later pushes to `main` deploy
+automatically.
+
+### Moving to an always-on deployment
+
+Collecting news on a schedule needs a worker, which needs paid plans. Prices from
+[render.com/pricing](https://render.com/pricing), checked 20 November 2026:
+
+| Change | Plan | Monthly cost |
+| --- | --- | --- |
+| `worldscope-api` stops sleeping and becomes reachable privately | Starter, 0.5 CPU, 512 MB | $7 |
+| Add `worldscope-worker` (Celery worker with `--beat`, one instance only) | Starter, 0.5 CPU, 512 MB | $7 |
+| `worldscope-db` stops expiring | Basic, 256 MB | $6 plus storage |
+
+With those in place: give the worker the same environment as the API, set
+`WORKERS_ENABLED=true` and replace `RUN_MIGRATIONS_ON_START` with the pre-deploy
+command `alembic upgrade head`, and point the web app at the API's private
+`host:port` (`API_INTERNAL_HOSTPORT`). The git history of `render.yaml` holds this
+layout in full (commit `1dda8be`).
 
 ## Architecture decisions
 

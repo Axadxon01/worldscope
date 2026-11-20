@@ -46,6 +46,9 @@ class Settings(BaseSettings):
     llm_model_deep: str = "claude-sonnet-5-5"
     ai_daily_budget_usd: float = Field(default=3.0, ge=0)
 
+    # False on deployments that run no background workers (e.g. a free hosting plan):
+    # the status page then says "not deployed" instead of reporting a fault.
+    workers_enabled: bool = True
     worker_heartbeat_key: str = "worldscope:worker:heartbeat"
     worker_heartbeat_ttl_seconds: int = Field(default=300, ge=60)
 

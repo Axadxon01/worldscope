@@ -1,16 +1,24 @@
-# Render Blueprint for WorldScope Intelligence.
+# Render Blueprint for WorldScope Intelligence: the free ($0) layout.
 # Docs: https://render.com/docs/blueprint-spec
 #
 # Layout (all in Frankfurt, the closest Render region to Central Asia):
-#   worldscope         web app (Next.js)      free: sleeps after 15 min idle, ~1 min to wake
-#   worldscope-api     API (FastAPI)          0.5c-512mb: always on, reachable privately
-#   worldscope-worker  Celery worker + beat   0.5c-512mb: background workers have no free plan
-#   worldscope-db      PostgreSQL 16          0.1c-256mb: persistent (free databases expire)
-#   worldscope-kv      Key Value (queue)      free: 25 MB, in memory, fine for queue and cache
+#   worldscope         web app (Next.js)     free: sleeps after 15 min idle, ~1 min to wake
+#   worldscope-api     API (FastAPI)         free: sleeps the same way
+#   worldscope-db      PostgreSQL 16         free: 1 GB, EXPIRES 30 days after creation
+#   worldscope-kv      Key Value (queue)     free: 25 MB, in memory
 #
-# The database and Key Value accept private-network connections only. AI features stay
-# off (LLM_PROVIDER=none) until you set LLM_PROVIDER=anthropic and ANTHROPIC_API_KEY on
-# worldscope-api and worldscope-worker.
+# What the free plan leaves out, on purpose and visibly on the Settings page:
+#   - No background workers (Render has no free plan for them), so nothing is collected
+#     on a schedule. WORKERS_ENABLED=false makes the status page say "Not deployed".
+#   - No pre-deploy command, so the API applies migrations when it starts
+#     (RUN_MIGRATIONS_ON_START=true, see backend/bin/start-api).
+#   - Free services cannot receive private-network traffic, so the web app reaches the
+#     API through its public URL. Set API_INTERNAL_URL on `worldscope` to the API's
+#     https://....onrender.com address once it exists.
+#
+# To move to an always-on paid layout, see "Deploy to Render" in README.md.
+# AI features stay off (LLM_PROVIDER=none) until you set LLM_PROVIDER=anthropic and
+# ANTHROPIC_API_KEY on worldscope-api.
 
 services:
   - type: web
@@ -25,22 +33,18 @@ services:
       paths:
         - frontend/**
     envVars:
-      - key: API_INTERNAL_HOSTPORT
-        fromService:
-          type: web
-          name: worldscope-api
-          property: hostport
+      # The API's public URL, e.g. https://worldscope-api.onrender.com
+      - key: API_INTERNAL_URL
+        sync: false
 
   - type: web
     name: worldscope-api
     runtime: docker
-    plan: 0.5c-512mb
+    plan: free
     region: frankfurt
     dockerfilePath: ./backend/Dockerfile
     dockerContext: ./backend
     healthCheckPath: /health/ready
-    # Runs before each deploy goes live; a failed migration keeps the old version serving.
-    preDeployCommand: alembic upgrade head
     buildFilter:
       paths:
         - backend/**
@@ -49,6 +53,10 @@ services:
         value: production
       - key: LOG_JSON
         value: "true"
+      - key: RUN_MIGRATIONS_ON_START
+        value: "true"
+      - key: WORKERS_ENABLED
+        value: "false"
       - key: DATABASE_URL
         fromDatabase:
           name: worldscope-db
@@ -65,41 +73,6 @@ services:
       - key: AI_DAILY_BUDGET_USD
         value: "3"
 
-  - type: worker
-    name: worldscope-worker
-    runtime: docker
-    plan: 0.5c-512mb
-    region: frankfurt
-    dockerfilePath: ./backend/Dockerfile
-    dockerContext: ./backend
-    # One worker process also runs the scheduler (--beat). Keep exactly one instance:
-    # a second instance would schedule every job twice.
-    dockerCommand: celery -A worldscope.tasks.celery_app worker --beat --loglevel=INFO --concurrency=2 --schedule=/tmp/celerybeat-schedule
-    buildFilter:
-      paths:
-        - backend/**
-    envVars:
-      - key: ENVIRONMENT
-        value: production
-      - key: LOG_JSON
-        value: "true"
-      - key: DATABASE_URL
-        fromDatabase:
-          name: worldscope-db
-          property: connectionString
-      - key: REDIS_URL
-        fromService:
-          type: keyvalue
-          name: worldscope-kv
-          property: connectionString
-      - key: SECRET_KEY
-        fromService:
-          type: web
-          name: worldscope-api
-          envVarKey: SECRET_KEY
-      - key: LLM_PROVIDER
-        value: none
-
   - type: keyvalue
     name: worldscope-kv
     plan: free
@@ -110,7 +83,7 @@ services:
 
 databases:
   - name: worldscope-db
-    plan: 0.1c-256mb
+    plan: free
     region: frankfurt
     postgresMajorVersion: "16"
     databaseName: worldscope

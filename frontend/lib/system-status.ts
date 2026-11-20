@@ -8,7 +8,8 @@ export interface ComponentStatus {
 }
 
 export interface WorkerStatus {
-  status: "ok" | "stale" | "unknown";
+  /** "disabled": this deployment runs no workers on purpose (WORKERS_ENABLED=false). */
+  status: "ok" | "stale" | "unknown" | "disabled";
   last_heartbeat_at: string | null;
   age_seconds: number | null;
 }
@@ -53,7 +54,7 @@ export function describe(result: StatusResult): StatusLine[] {
         name: "API",
         value: result.reason,
         tone: "critical",
-        hint: "Start the API (make dev), or check API_INTERNAL_URL for the web app.",
+        hint: "On a free hosting plan the API sleeps after 15 minutes without visits and needs about a minute to wake; this panel checks again every 30 seconds. Locally, start it with make dev. If it stays unreachable, check API_INTERNAL_URL for the web app.",
       },
     ];
   }
@@ -69,26 +70,38 @@ export function describe(result: StatusResult): StatusLine[] {
 
   const workers: StatusLine =
     s.workers.status === "ok"
-      ? { name: "Workers", value: `Last seen ${age(s.workers.age_seconds ?? 0)}`, tone: "good" }
-      : s.workers.status === "stale"
+      ? {
+          name: "Workers",
+          value: `Last seen ${age(s.workers.age_seconds ?? 0)}`,
+          tone: "good",
+        }
+      : s.workers.status === "disabled"
         ? {
             name: "Workers",
-            value: `Silent since ${age(s.workers.age_seconds ?? 0)}`,
-            tone: "warn",
-            hint: "A worker or the scheduler stopped. Check their logs: make logs.",
+            value: "Not deployed",
+            tone: "neutral",
+            hint: "This deployment runs no background workers, so nothing is collected on a schedule. Workers need a paid plan on Render; locally, make dev starts them.",
           }
-        : {
-            name: "Workers",
-            value: "No heartbeat yet",
-            tone: "warn",
-            hint: "Start a worker and the scheduler (make dev starts both). The first heartbeat arrives within a minute.",
-          };
+        : s.workers.status === "stale"
+          ? {
+              name: "Workers",
+              value: `Silent since ${age(s.workers.age_seconds ?? 0)}`,
+              tone: "warn",
+              hint: "A worker or the scheduler stopped. Check their logs: make logs.",
+            }
+          : {
+              name: "Workers",
+              value: "No heartbeat yet",
+              tone: "warn",
+              hint: "Start a worker and the scheduler (make dev starts both). The first heartbeat arrives within a minute.",
+            };
 
   const llm: StatusLine =
     s.llm.status === "ok"
       ? {
           name: "AI provider",
-          value: s.llm.detail === "anthropic" ? "Claude" : (s.llm.detail ?? "Ready"),
+          value:
+            s.llm.detail === "anthropic" ? "Claude" : (s.llm.detail ?? "Ready"),
           tone: "good",
         }
       : s.llm.detail === "disabled"

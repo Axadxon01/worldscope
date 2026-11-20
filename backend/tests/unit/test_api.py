@@ -138,3 +138,13 @@ def test_status_reports_ai_turned_off(monkeypatch: pytest.MonkeyPatch) -> None:
     get_settings.cache_clear()
     body = client_with(FakeSession(), FakeRedis()).get("/api/v1/system/status").json()
     assert body["llm"] == {"status": "not_configured", "detail": "disabled"}
+
+
+def test_status_ok_when_workers_are_not_part_of_this_deployment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("WORKERS_ENABLED", "false")
+    get_settings.cache_clear()
+    body = client_with(FakeSession(), FakeRedis()).get("/api/v1/system/status").json()
+    assert body["workers"]["status"] == "disabled"
+    assert body["status"] == "ok"

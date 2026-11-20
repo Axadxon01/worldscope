@@ -34,8 +34,9 @@ COPY --from=builder /app/.venv /app/.venv
 COPY --chown=app:app alembic.ini ./
 COPY --chown=app:app migrations ./migrations
 COPY --chown=app:app worldscope ./worldscope
+COPY --chown=app:app bin ./bin
 
 USER app
 EXPOSE 8000
-# Hosting platforms such as Render set PORT; locally it defaults to 8000.
-CMD ["sh", "-c", "exec uvicorn --factory worldscope.api.main:app_factory --host 0.0.0.0 --port ${PORT:-8000} --proxy-headers --no-server-header"]
+# Listens on $PORT (hosting platforms set it) or 8000; see bin/start-api.
+CMD ["/app/bin/start-api"]

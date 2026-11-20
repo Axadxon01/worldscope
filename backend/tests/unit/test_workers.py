@@ -59,11 +59,23 @@ async def test_missing_or_garbled_heartbeat_is_unknown() -> None:
         assert status.status == "unknown"
 
 
+async def test_missing_heartbeat_is_disabled_when_no_workers_are_expected() -> None:
+    status = await check_workers(AsyncRedis(None), "hb", now=NOW, expected=False)  # type: ignore[arg-type]
+    assert status.status == "disabled"
+
+
+async def test_a_real_heartbeat_wins_even_when_workers_are_not_expected() -> None:
+    beat = (NOW - timedelta(seconds=10)).isoformat()
+    status = await check_workers(AsyncRedis(beat), "hb", now=NOW, expected=False)  # type: ignore[arg-type]
+    assert status.status == "ok"
+
+
 def test_overall_state() -> None:
     ok, down = ComponentStatus(status="ok"), ComponentStatus(status="down")
     alive, missing = WorkerStatus(status="ok"), WorkerStatus(status="unknown")
     assert overall(ok, ok, alive) == "ok"
     assert overall(ok, ok, missing) == "degraded"
+    assert overall(ok, ok, WorkerStatus(status="disabled")) == "ok"
     assert overall(down, ok, alive) == "down"
     assert overall(ok, down, alive) == "down"
 

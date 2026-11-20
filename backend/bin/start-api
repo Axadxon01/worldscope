@@ -1,0 +1,13 @@
+#!/bin/sh
+# Starts the API. On hosts without a separate migration step (e.g. Render's free plan,
+# which has no pre-deploy command), set RUN_MIGRATIONS_ON_START=true to apply database
+# migrations first; with a single API instance this is safe.
+set -eu
+
+if [ "${RUN_MIGRATIONS_ON_START:-false}" = "true" ]; then
+  echo "Applying database migrations"
+  alembic upgrade head
+fi
+
+exec uvicorn --factory worldscope.api.main:app_factory \
+  --host 0.0.0.0 --port "${PORT:-8000}" --proxy-headers --no-server-header
