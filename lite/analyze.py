@@ -12,6 +12,8 @@ import re
 from collections import Counter
 from pathlib import Path
 
+import httpx
+
 HERE = Path(__file__).parent
 
 # ------------------------------------------------------------------ categories
@@ -571,13 +573,146 @@ def build_items(groups: list[list[dict]], limit: int = 70) -> list[dict]:
     return picked[:limit]
 
 
+class AIError(Exception):
+    """A provider refused or failed; the message is shown to the user as is."""
+
+
+def providers() -> list[str]:
+    """Configured providers in the order they are tried. WS_PROVIDER puts one first."""
+    have = [p for p, var in (("anthropic", "ANTHROPIC_API_KEY"), ("gemini", "GEMINI_API_KEY")) if os.environ.get(var)]
+    first = os.environ.get("WS_PROVIDER", "").lower()
+    if first in have:
+        have.remove(first)
+        have.insert(0, first)
+    return have
+
+
 def ai_available() -> bool:
-    return bool(os.environ.get("ANTHROPIC_API_KEY"))
+    return bool(providers())
+
+
+def model_label() -> str:
+    names = {"anthropic": MODEL, "gemini": os.environ.get("WS_GEMINI_MODEL") or _gemini_cache.get("model") or "Gemini"}
+    return " → ".join(names[p] for p in providers()) or "—"
+
+
+def _anthropic(system: str, prompt: str) -> tuple[str, str]:
+    import anthropic
+
+    try:
+        resp = anthropic.Anthropic().messages.create(
+            model=MODEL, max_tokens=2000, system=system, messages=[{"role": "user", "content": prompt}]
+        )
+    except anthropic.APIStatusError as e:
+        detail = str(getattr(e, "body", "") or e)
+        if "credit balance" in detail:
+            raise AIError("Claude: Anthropic hisobida kredit yetarli emas") from e
+        if e.status_code == 401:
+            raise AIError("Claude: kalit noto'g'ri yoki bekor qilingan") from e
+        raise AIError(f"Claude: HTTP {e.status_code}") from e
+    except anthropic.APIError as e:
+        raise AIError(f"Claude: {type(e).__name__}") from e
+    return "".join(b.text for b in resp.content if b.type == "text").strip(), str(resp.model)
+
+
+GEMINI_API = "https://generativelanguage.googleapis.com/v1beta"
+_gemini_cache: dict[str, str] = {}
+
+
+def _gemini_version(name: str) -> tuple:
+    m = re.search(r"gemini-(\d+)(?:\.(\d+))?", name)
+    return (int(m.group(1)), int(m.group(2) or 0)) if m else (0, 0)
+
+
+def pick_gemini_model(models: list[dict]) -> str | None:
+    """Newest stable Flash model that can write text; Pro or preview only if nothing else."""
+    skip = ("image", "tts", "audio", "live", "embed", "vision", "thinking-exp", "learnlm", "gemma", "robotics")
+    cands = []
+    for m in models:
+        name = m.get("name", "").removeprefix("models/")
+        if "generateContent" not in m.get("supportedGenerationMethods", []) or not name.startswith("gemini-"):
+            continue
+        if any(k in name for k in skip):
+            continue
+        unstable = any(k in name for k in ("preview", "exp", "latest"))
+        rank = (
+            not unstable,
+            "flash" in name and "lite" not in name,
+            "flash" in name,
+            _gemini_version(name),
+            -len(name),
+        )
+        cands.append((rank, name))
+    return max(cands)[1] if cands else None
+
+
+def _gemini_model(client: httpx.Client, key: str) -> str:
+    if os.environ.get("WS_GEMINI_MODEL"):
+        return os.environ["WS_GEMINI_MODEL"]
+    if "model" not in _gemini_cache:
+        r = client.get(f"{GEMINI_API}/models", params={"pageSize": 1000}, headers={"x-goog-api-key": key})
+        if r.status_code >= 400:
+            raise AIError(_gemini_error(r))
+        name = pick_gemini_model(r.json().get("models", []))
+        if not name:
+            raise AIError("Gemini: matn yozadigan model topilmadi")
+        _gemini_cache["model"] = name
+    return _gemini_cache["model"]
+
+
+def _gemini_error(r: httpx.Response) -> str:
+    try:
+        msg = r.json()["error"].get("message", "")
+    except (ValueError, KeyError, TypeError, AttributeError):
+        msg = ""
+    if r.status_code == 429:
+        return "Gemini: bepul limit tugadi, birozdan keyin urinib ko'ring"
+    if "API key not valid" in msg or r.status_code in (401, 403):
+        return "Gemini: kalit noto'g'ri yoki bu API uchun ruxsat yo'q"
+    return f"Gemini: HTTP {r.status_code} {msg[:120]}".strip()
+
+
+def _gemini(system: str, prompt: str) -> tuple[str, str]:
+    key = os.environ["GEMINI_API_KEY"]
+    body = {
+        "systemInstruction": {"parts": [{"text": system}]},
+        "contents": [{"role": "user", "parts": [{"text": prompt}]}],
+        "generationConfig": {"maxOutputTokens": 8192, "temperature": 0.3},
+    }
+    try:
+        with httpx.Client(timeout=httpx.Timeout(120.0, connect=15.0)) as client:
+            model = _gemini_model(client, key)
+            r = client.post(f"{GEMINI_API}/models/{model}:generateContent", json=body, headers={"x-goog-api-key": key})
+    except httpx.HTTPError as e:
+        raise AIError(f"Gemini: ulanib bo'lmadi ({type(e).__name__})") from e
+    if r.status_code >= 400:
+        if r.status_code == 404:
+            _gemini_cache.pop("model", None)  # the model was retired; pick again next time
+        raise AIError(_gemini_error(r))
+    data = r.json()
+    cand = (data.get("candidates") or [{}])[0]
+    text = "".join(p.get("text", "") for p in (cand.get("content") or {}).get("parts", []) if not p.get("thought"))
+    if not text.strip():
+        reason = cand.get("finishReason") or (data.get("promptFeedback") or {}).get("blockReason") or "bo'sh javob"
+        raise AIError(f"Gemini javob bermadi: {reason}")
+    return text.strip(), model
+
+
+PROVIDERS = {"anthropic": _anthropic, "gemini": _gemini}
+
+
+def complete(system: str, prompt: str) -> tuple[str, str]:
+    """Try each configured provider in turn; report every failure if all fail."""
+    errors = []
+    for name in providers():
+        try:
+            return PROVIDERS[name](system, prompt)
+        except AIError as e:
+            errors.append(str(e))
+    raise AIError("; ".join(errors) or "AI kaliti o'rnatilmagan")
 
 
 def write_brief(articles: list[dict], lang: str, focus: str = "") -> dict:
-    import anthropic  # imported here so the app runs without the package configured
-
     items = build_items(cluster(articles))
     if not items:
         raise ValueError("Tahlil uchun yangilik yo'q. Avval manbalarni yangilang.")
@@ -588,14 +723,10 @@ def write_brief(articles: list[dict], lang: str, focus: str = "") -> dict:
     task = "Write the brief."
     if focus:
         task = f"Focus the brief on: {focus}. Ignore items unrelated to it; say so if few are relevant."
-    client = anthropic.Anthropic()
-    resp = client.messages.create(
-        model=MODEL,
-        max_tokens=2000,
-        system=SYSTEM.format(lang=LANG_NAMES.get(lang, "English")),
-        messages=[{"role": "user", "content": "News items:\n" + "\n".join(lines) + "\n\n" + task}],
+    body, model = complete(
+        SYSTEM.format(lang=LANG_NAMES.get(lang, "English")),
+        "News items:\n" + "\n".join(lines) + "\n\n" + task,
     )
-    body = "".join(b.text for b in resp.content if b.type == "text").strip()
     used = sorted({int(m) for m in re.findall(r"\[(\d+)\]", body) if 1 <= int(m) <= len(items)})
     body = re.sub(r"\[(\d+)\]", lambda m: m.group(0) if 1 <= int(m.group(1)) <= len(items) else "", body)
     cites = [
@@ -608,7 +739,7 @@ def write_brief(articles: list[dict], lang: str, focus: str = "") -> dict:
         }
         for n in used
     ]
-    return {"body": body, "cites": cites, "model": str(resp.model)}
+    return {"body": body, "cites": cites, "model": model}
 
 
 def dumps(v) -> str:

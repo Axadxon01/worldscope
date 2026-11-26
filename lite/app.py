@@ -280,7 +280,7 @@ def brief_page(request: Request, id: int | None = None, error: str = ""):
             "briefs": briefs,
             "current": current,
             "ai": analyze.ai_available(),
-            "model": analyze.MODEL,
+            "model": analyze.model_label(),
             "error": error,
         },
     )
@@ -291,20 +291,18 @@ async def make_brief(lang: str = Form("uz"), hours: str = Form("24"), focus: str
     h = _hours(hours)
     focus = focus.strip()[:200]
     if not analyze.ai_available():
-        return RedirectResponse("/brief?error=" + "ANTHROPIC_API_KEY+o%27rnatilmagan", 303)
+        return RedirectResponse("/brief?error=" + quote_plus("AI kaliti o'rnatilmagan"), 303)
     arts = _articles(h, q=focus if focus and len(focus.split()) == 1 else "")
     if focus and len(arts) < 5:  # a single-word focus that matched too little: let the model filter
         arts = _articles(h)
     try:
         result = await asyncio.to_thread(analyze.write_brief, arts, lang if lang in analyze.LANG_NAMES else "uz", focus)
-    except Exception as e:  # show the reason on the page instead of a 500
+    except (ValueError, analyze.AIError) as e:
+        log.warning("brief failed: %s", e)
+        return RedirectResponse("/brief?error=" + quote_plus(str(e)), 303)
+    except Exception as e:  # show something useful instead of a 500
         log.exception("brief failed")
-        msg = str(e) if isinstance(e, ValueError) else f"AI xatosi: {type(e).__name__}"
-        detail = str(getattr(e, "body", None) or "")
-        if "credit balance" in detail:
-            msg = "Anthropic hisobida kredit yetarli emas: console.anthropic.com → Plans & Billing"
-        elif getattr(e, "status_code", None) == 401:
-            msg = "Anthropic kaliti noto'g'ri yoki bekor qilingan"
+        msg = f"AI xatosi: {type(e).__name__}"
         return RedirectResponse("/brief?error=" + quote_plus(msg), 303)
     with db.tx() as c:
         cur = c.execute(

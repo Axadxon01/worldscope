@@ -239,3 +239,96 @@ def test_undated_item_in_dated_feed_is_dropped():
 @pytest.mark.parametrize("text", ["Ферганская область обсудила сотрудничество", "Farg‘ona viloyatida yangi zavod"])
 def test_uzbek_regions(text):
     assert "UZB" in analyze.tag(text, "")[1]
+
+
+GEMINI_MODELS = {
+    "models": [
+        {"name": "models/gemini-2.5-flash", "supportedGenerationMethods": ["generateContent"]},
+        {"name": "models/gemini-3.5-flash", "supportedGenerationMethods": ["generateContent", "countTokens"]},
+        {"name": "models/gemini-3.5-flash-lite", "supportedGenerationMethods": ["generateContent"]},
+        {"name": "models/gemini-3.5-pro", "supportedGenerationMethods": ["generateContent"]},
+        {"name": "models/gemini-3.8-flash-preview", "supportedGenerationMethods": ["generateContent"]},
+        {"name": "models/gemini-3.5-flash-image", "supportedGenerationMethods": ["generateContent"]},
+        {"name": "models/text-embedding-004", "supportedGenerationMethods": ["embedContent"]},
+    ]
+}
+
+
+def test_pick_gemini_model_prefers_newest_stable_flash():
+    assert analyze.pick_gemini_model(GEMINI_MODELS["models"]) == "gemini-3.5-flash"
+    assert analyze.pick_gemini_model([GEMINI_MODELS["models"][4]]) == "gemini-3.8-flash-preview"
+    assert analyze.pick_gemini_model([]) is None
+
+
+def _gemini_transport(calls, status=200):
+    import httpx
+
+    def handler(request):
+        calls.append((request.method, request.url.path, request.headers.get("x-goog-api-key")))
+        if request.url.path.endswith("/models"):
+            return httpx.Response(200, json=GEMINI_MODELS)
+        if status != 200:
+            return httpx.Response(
+                status, json={"error": {"message": "API key not valid. Please pass a valid API key."}}
+            )
+        return httpx.Response(
+            200,
+            json={
+                "candidates": [
+                    {
+                        "content": {
+                            "parts": [
+                                {"text": "thinking…", "thought": True},
+                                {"text": "Gemini brifi: kelishuv imzolandi [1]."},
+                            ]
+                        },
+                        "finishReason": "STOP",
+                    }
+                ]
+            },
+        )
+
+    real = httpx.Client
+    return lambda **kw: real(transport=httpx.MockTransport(handler), **kw)
+
+
+def test_falls_back_from_claude_without_credit_to_gemini(client, monkeypatch):
+    c, _ = client
+    import anthropic
+    import httpx
+
+    class NoCredit:
+        def __init__(self):
+            self.messages = self
+
+        def create(self, **kw):
+            req = httpx.Request("POST", "https://api.anthropic.com/v1/messages")
+            body = {
+                "type": "error",
+                "error": {
+                    "type": "invalid_request_error",
+                    "message": "Your credit balance is too low to access the Anthropic API.",
+                },
+            }
+            raise anthropic.BadRequestError("400", response=httpx.Response(400, request=req), body=body)
+
+    calls = []
+    monkeypatch.setattr(anthropic, "Anthropic", NoCredit)
+    monkeypatch.setattr(analyze.httpx, "Client", _gemini_transport(calls))
+    analyze._gemini_cache.pop("model", None)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "x")
+    monkeypatch.setenv("GEMINI_API_KEY", "g-key")
+    r = c.post("/brief", data={"lang": "uz", "hours": "24"})
+    assert "Gemini brifi" in r.text and "thinking" not in r.text
+    assert "gemini-3.5-flash" in r.text
+    assert calls[-1] == ("POST", "/v1beta/models/gemini-3.5-flash:generateContent", "g-key")
+
+
+def test_all_providers_fail_shows_each_reason(client, monkeypatch):
+    c, _ = client
+    analyze._gemini_cache.pop("model", None)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.setenv("GEMINI_API_KEY", "bad")
+    monkeypatch.setattr(analyze.httpx, "Client", _gemini_transport([], status=400))
+    r = c.post("/brief", data={"lang": "uz", "hours": "24"})
+    assert "kalit noto" in r.text
