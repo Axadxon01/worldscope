@@ -16,6 +16,13 @@ To'liq WorldScope (`frontend/`, `backend/`) o'zgarishsiz qoladi; bu papka undan 
 - **AI tahlil** (`GEMINI_API_KEY` yoki `ANTHROPIC_API_KEY` bo'lsa): tanlangan davr va mavzu bo'yicha o'zbek, rus yoki
   ingliz tilida brif. Har bir da'vo manbaga `[raqam]` bilan bog'lanadi; fakt, taraf bayonoti va tahlil ajratiladi.
 
+- **Xarita** (`/map`): AI yangiliklardan davlatlar orasidagi muhim bog'liqliklarni topib, dunyo
+  xaritasida o'q bilan chizadi. Har bir o'q ustida mohiyatni bir gapda aytadigan bulutcha turadi. Bosilganda
+  "tub mantiq" (manfaat, motiv, ehtimoliy oqibat), ishonch darajasi va dalil-manbalar ochiladi. `/map#3`
+  havolasi 3-bog'liqlikni to'g'ridan-to'g'ri ochadi. AI bo'lmasa ham, bir xabarda birga tilga olingan
+  davlatlar kulrang chiziq bilan ko'rsatiladi. Chegaralar saytning o'zida (Natural Earth), tashqi xizmat
+  yoki kalit kerak emas.
+
 Faqat sarlavha, qisqa matn va havola saqlanadi. Paywall va bot himoyasi aylanib o'tilmaydi.
 Instagram'ning ochiq API'si yo'q va scraping qoidalariga zid, shuning uchun qo'shilmagan.
 
