@@ -12,6 +12,7 @@ A name match is a lead to check against the official list, never a legal finding
 from __future__ import annotations
 
 import asyncio
+import base64
 import contextlib
 import csv
 import difflib
@@ -54,7 +55,9 @@ LISTS = {
     "EU": {
         "label": "Yevropa Ittifoqi",
         "files": {
-            "csv": "https://webgate.ec.europa.eu/fsd/fsf/public/files/csvFullSanctionsList_1_1/content?token=dG9rZW4tMjAxNw"
+            # The EU publishes the file behind a fixed public token: base64 of "token-2017".
+            "csv": "https://webgate.ec.europa.eu/fsd/fsf/public/files/csvFullSanctionsList_1_1/content?token="
+            + base64.b64encode(b"token-2017").decode().rstrip("=")
         },
         "official": "https://www.sanctionsmap.eu/",
     },

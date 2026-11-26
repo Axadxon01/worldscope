@@ -201,13 +201,15 @@ async def _sanctions_when_stale(delay: float = 0) -> None:
 @asynccontextmanager
 async def lifespan(_app):
     db.init(json.loads((HERE / "sources_default.json").read_text(encoding="utf-8")))
-    task = asyncio.create_task(_loop())
+    # WS_LOOP=0 (tests) keeps the background loop from racing the test's own refresh.
+    task = asyncio.create_task(_loop()) if os.environ.get("WS_LOOP", "1") == "1" else None
     if telegram_bot.enabled():
         _keep(asyncio.create_task(telegram_bot.setup_webhook()))
     if SANCTIONS_AUTO:
         _keep(asyncio.create_task(_sanctions_when_stale(delay=90)))
     yield
-    task.cancel()
+    if task:
+        task.cancel()
 
 
 app = FastAPI(title="WorldScope Lite", lifespan=lifespan, docs_url=None, redoc_url=None)

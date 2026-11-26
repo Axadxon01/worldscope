@@ -138,6 +138,7 @@ def client(tmp_path, monkeypatch):
     use_test_db(monkeypatch, tmp_path, "t")
     monkeypatch.delenv("APP_PASSWORD", raising=False)
     monkeypatch.setenv("WS_SANCTIONS_AUTO", "0")  # no 80 MB downloads in tests
+    monkeypatch.setenv("WS_LOOP", "0")  # the test runs refresh itself; a second one would race it
     for m in ("db", "facts", "debt", "telegram_bot", "sanctions", "risk", "framing", "app"):
         sys.modules.pop(m, None)
     import db  # noqa: F401
