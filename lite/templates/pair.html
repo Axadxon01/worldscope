@@ -69,6 +69,20 @@
   <header class="phead">
     <div class="side a"><h2>{{ name(a) }}</h2><span class="tierb t{{ tier(a) }}">{{ TIER_SHORT[tier(a)] }}</span></div>
     <div class="gauge" title="−5 dushmanlik … +5 ittifoq">
+      {% set ang = r.score * 4 %}
+      <svg class="balance" viewBox="0 0 360 150" width="300" role="img" aria-label="Tarozi: ziddiyat va hamkorlik, ball {{ '%+d'|format(r.score) }}">
+        <path d="M180 60 L180 132 M150 134 L210 134" stroke="var(--gold)" stroke-width="5" stroke-linecap="round"/>
+        <circle cx="180" cy="56" r="7" fill="var(--gold)"/>
+        <g class="beam" style="transform: rotate({{ ang }}deg)">
+          <path d="M60 60 L300 60" stroke="var(--gold)" stroke-width="5" stroke-linecap="round"/>
+          <g style="transform: rotate({{ -ang }}deg); transform-origin: 60px 60px; transition: transform 1.2s cubic-bezier(.3,1.6,.5,1)">
+            <path d="M60 60 L36 104 M60 60 L84 104" stroke="var(--muted)" stroke-width="1.2"/><path d="M28 104 Q60 124 92 104 Z" fill="#b3261e"/>
+            <text x="60" y="140" text-anchor="middle" font-size="12" fill="var(--ink)">⚔ Ziddiyat</text></g>
+          <g style="transform: rotate({{ -ang }}deg); transform-origin: 300px 60px; transition: transform 1.2s cubic-bezier(.3,1.6,.5,1)">
+            <path d="M300 60 L276 104 M300 60 L324 104" stroke="var(--muted)" stroke-width="1.2"/><path d="M268 104 Q300 124 332 104 Z" fill="#1f8a5b"/>
+            <text x="300" y="140" text-anchor="middle" font-size="12" fill="var(--ink)">🤝 Hamkorlik</text></g>
+        </g>
+      </svg>
       <div class="bar"><i style="left: {{ (r.score + 5) * 10 }}%"></i></div>
       <b class="{{ 'pos' if r.score > 1 else 'neg' if r.score < -1 else 'mid' }}">{{ '%+d'|format(r.score) }}</b>
       <span>{{ r.label }}</span>
@@ -168,7 +182,7 @@
 
 <script>
 const P = {{ payload }};
-const dark = matchMedia("(prefers-color-scheme: dark)").matches;
+const dark = document.documentElement.dataset.theme !== "light";
 const selA = document.getElementById("sel-a"), selB = document.getElementById("sel-b"), selC = document.getElementById("sel-c");
 const map = L.map("pmap", {minZoom: 1.5, maxZoom: 6, zoomSnap: 0.5, worldCopyJump: false, maxBounds: [[-75, -250], [85, 250]]})
   .setView([30, 40], 2);

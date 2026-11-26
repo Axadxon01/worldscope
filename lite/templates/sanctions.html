@@ -9,7 +9,7 @@
     <td class="small"><span class="k">{{ r.list }}</span>{{ progs(r.programs) }}</td>
     <td class="small">{{ flags(r.countries) }}</td>
     <td class="small">{{ r.listed or '—' }}</td>
-    {% if show_score %}<td class="small">{{ match(r.score) }} <span class="muted">({{ (r.score * 100)|round|int }}%)</span></td>{% endif %}
+    {% if show_score %}<td class="small"><span class="stamp {{ 'full' if r.score >= 0.95 else 'strong' if r.score >= 0.8 else 'part' }}">{{ match(r.score) }}</span> <span class="muted">({{ (r.score * 100)|round|int }}%)</span></td>{% endif %}
   </tr>
 {% endmacro %}
 

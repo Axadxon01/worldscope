@@ -5,10 +5,14 @@
 <link rel="stylesheet" href="/static/leaflet/leaflet.css">
 <script src="/static/leaflet/leaflet.js"></script>
 <script src="/static/world/topojson-client.min.js"></script>
+<script src="/static/vendor/d3-array.min.js"></script>
+<script src="/static/vendor/d3-geo.min.js"></script>
+<script src="/static/globe.js"></script>
 {% endblock %}
 {% block body %}
 <div class="mapwrap">
   <div id="map" aria-label="Davlatlar orasidagi bog'liqliklar xaritasi"></div>
+  <div id="globebox" hidden><canvas class="globe" id="globe" aria-label="Davlatlar orasidagi bog'liqliklar globusi"></canvas></div>
 
   <aside class="mappanel" id="panel">
     <div class="pane-head">
@@ -18,6 +22,12 @@
     <div class="pane-body">
       {% if error %}<p class="warn">{{ error }}</p>{% endif %}
 
+      <div class="modes" role="group" aria-label="Ko'rinish">
+        <button type="button" data-mode="globe">🌐 Globus</button><button type="button" data-mode="flat">🗺 Tekis xarita</button>
+      </div>
+      <div class="modes" role="group" aria-label="Davlatlar rangi" id="layers">
+        <button type="button" data-layer="" class="on">Aloqalar</button><button type="button" data-layer="risk">Xavf indeksi</button><button type="button" data-layer="sanctions">Sanksiyalar</button>
+      </div>
       <div id="detail" class="detail" hidden></div>
 
       <div id="overview">
@@ -47,6 +57,7 @@
 
       <div class="toggles small">
         <label><input type="checkbox" id="showBubbles" checked> Bulutchalar</label>
+        <label title="O'chirilsa urush va savdo belgilari o'rniga faqat chiziqlar qoladi"><input type="checkbox" id="showSigns" checked> Ramziy belgilar</label>
         <label><input type="checkbox" id="showCo" {{ '' if current else 'checked' }}> Birga tilga olinish ({{ hours }} soat)</label>
       </div>
       <div class="legend small" id="legend"></div>
@@ -70,7 +81,7 @@ const COLORS = {cooperation:"#16a34a", trade:"#0ea5e9", aid:"#14b8a6", diplomacy
 const CONF = {high:"Yuqori ishonch: bir nechta mustaqil manba", medium:"O'rta ishonch: bitta ishonchli manba",
               low:"Past ishonch: bir tomonning bayonoti yoki bitta kanal"};
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
-const dark = matchMedia("(prefers-color-scheme: dark)").matches;
+const dark = document.documentElement.dataset.theme !== "light";
 
 const map = L.map("map", {minZoom: 2, maxZoom: 7, zoomSnap: 0.5, maxBounds: [[-75, -250], [85, 250]],
                          attributionControl: true}).setView([42, 55], 3);
@@ -258,6 +269,42 @@ document.getElementById("legend").innerHTML = Object.entries(DATA.types)
   `<span><i class="dash"></i>past ishonch</span><span><i class="co"></i>birga tilga olinish</span>`;
 const fromHash = parseInt(location.hash.slice(1), 10);
 if (fromHash >= 1 && fromHash <= DATA.links.length) setTimeout(() => show(fromHash - 1, true), 100);
+// ---- the globe: the default view; the flat Leaflet map stays underneath for the "Tekis" mode
+let G = null, mode = "globe";
+try { mode = localStorage.getItem("ws-mapmode") || "globe"; } catch (e) {}
+function setMode(m) {
+  mode = m;
+  try { localStorage.setItem("ws-mapmode", m); } catch (e) {}
+  document.getElementById("globebox").hidden = m !== "globe";
+  document.getElementById("layers").hidden = m !== "globe";
+  document.querySelectorAll("[data-mode]").forEach(b => b.classList.toggle("on", b.dataset.mode === m));
+  if (m === "globe" && !G) {
+    fetch(new URL("/static/world/countries-110m.json", location.origin)).then(r => r.json()).then(topo => {
+      G = WSGlobe(document.getElementById("globe"), {topo, geo: DATA.geo, coords: DATA.coords, names: DATA.names,
+        links: DATA.links, co: DATA.co, colors: COLORS, panel: 380, onLink: i => show(i), onCountry: iso => G.focusCountry(iso)});
+      G.setSigns(document.getElementById("showSigns").checked);
+      if (fromHash >= 1 && fromHash <= DATA.links.length) G.focusLink(fromHash - 1);
+    });
+  }
+}
+document.querySelectorAll("[data-mode]").forEach(b => b.onclick = () => setMode(b.dataset.mode));
+document.getElementById("showSigns").onchange = e => G && G.setSigns(e.target.checked);
+const layerCache = {};
+document.querySelectorAll("[data-layer]").forEach(b => b.onclick = async () => {
+  document.querySelectorAll("[data-layer]").forEach(x => x.classList.toggle("on", x === b));
+  const k = b.dataset.layer;
+  if (!k) { G && G.setLayer(null); return; }
+  if (!layerCache[k]) {
+    const r = await fetch(new URL("/api/layers?kind=" + k, location.origin));
+    layerCache[k] = r.ok ? await r.json() : {};
+  }
+  G && G.setLayer(layerCache[k]);
+});
+const showFlat = show, hideFlat = hideDetail;
+show = (i, instant) => { showFlat(i, instant); if (G && mode === "globe") G.focusLink(i); };
+hideDetail = () => { hideFlat(); if (G) G.clearFocus(); };
+setMode(mode);
+
 document.getElementById("collapse").onclick = () => document.getElementById("panel").classList.toggle("collapsed");
 document.getElementById("mapform").onsubmit = () => { document.getElementById("gen").disabled = true; document.getElementById("genwait").hidden = false; };
 </script>

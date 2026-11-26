@@ -418,10 +418,24 @@ def feed(
     h = _hours(hours)
     arts = _articles(h, q.strip(), kind, cat, country)
     ov = analyze.overview(arts)
+    hero = None
+    if not (q or kind or cat or country):  # the globe on the front page, unfiltered view only
+        latest = db.one("SELECT data FROM maps ORDER BY id DESC LIMIT 1")
+        links = json.loads(latest["data"])["links"] if latest else []
+        hero = {
+            "geo": {v["name"]: k for k, v in analyze.COUNTRY_INFO.items()},
+            "links": links,
+            "co": [] if links else analyze.co_mentions(_articles(48))[:12],
+            "coords": {k: [round(v["lat"], 2), round(v["lon"], 2)] for k, v in analyze.COUNTRY_INFO.items()},
+            "names": {k: analyze.display_name(k) for k in analyze.COUNTRY_INFO},
+            "types": analyze.LINK_TYPES,
+        }
     return templates.TemplateResponse(
         request,
         "feed.html",
         {
+            "hero": hero,
+            "hero_json": Markup(json.dumps(hero, ensure_ascii=False).replace("</", "<\\/")) if hero else "",
             "arts": arts[:300],
             "ov": ov,
             "f": {"q": q, "kind": kind, "cat": cat, "country": country, "hours": h, "view": view},
@@ -871,6 +885,9 @@ async def sanctions_refresh():
 # ------------------------------------------------------------------ country risk index
 
 
+COORDS = {k: [round(v["lat"], 2), round(v["lon"], 2)] for k, v in analyze.COUNTRY_INFO.items()}
+
+
 @app.get("/risk", response_class=HTMLResponse)
 async def risk_page(request: Request, c: str = "", tier: int = 0, error: str = ""):
     iso = c.upper()[:3]
@@ -896,6 +913,7 @@ async def risk_page(request: Request, c: str = "", tier: int = 0, error: str = "
         {
             "rows": shown, "detail": detail, "meta": meta, "error": error, "tier": tier, "TIERS": pairs.TIERS,
             "COMPONENTS": risk.COMPONENTS, "BANDS": risk.BANDS, "scored": sum(r["score"] is not None for r in rows),
+            "coords": Markup(json.dumps(COORDS)),
             "payload": Markup(json.dumps(payload, ensure_ascii=False).replace("</", "<\\/")),
         },
     )  # fmt: skip
@@ -1123,6 +1141,27 @@ def delete_source(sid: int):
     with db.tx() as c:
         c.execute("DELETE FROM sources WHERE id=?", (sid,))
     return RedirectResponse("/sources", 303)
+
+
+@app.get("/api/layers")
+async def api_layers(kind: str = "risk"):
+    """Country colours for the globe: {ISO3: [value, colour, label]}."""
+    if kind == "risk":
+        try:
+            rows, _ = await asyncio.wait_for(risk.build(), 30)
+        except Exception:
+            return JSONResponse({}, status_code=503)
+        scored = [r for r in rows if r["score"] is not None]
+        return {r["iso"]: [r["score"], r["color"], f"{r['score']} · {r['band']}"] for r in scored}
+    if kind == "sanctions":
+        st = await asyncio.to_thread(sanctions.stats)
+        out = {}
+        for iso, s in st.items():
+            p = sanctions.risk_points(s["total"])
+            _, color = risk.band(p)
+            out[iso] = [s["total"], color, f"{s['total']} ta yozuv"]
+        return out
+    return JSONResponse({}, status_code=404)
 
 
 @app.get("/api/articles")

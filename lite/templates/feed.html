@@ -15,7 +15,43 @@
 </li>
 {% endmacro %}
 
+{% block head %}{% if hero %}
+<script src="/static/world/topojson-client.min.js"></script>
+<script src="/static/vendor/d3-array.min.js"></script>
+<script src="/static/vendor/d3-geo.min.js"></script>
+<script src="/static/globe.js"></script>{% endif %}
+{% endblock %}
 {% block body %}
+{% if hero %}
+<section class="hero">
+  <div class="globewrap"><canvas class="globe" id="heroglobe" aria-label="Dunyo globusi: davlatlar orasidagi asosiy aloqalar"></canvas></div>
+  <div>
+    <h1>Dunyo hozir</h1>
+    {% if hero.links %}
+      <p class="muted small">AI xaritasidagi asosiy aloqalar. Belgini yoki qatorni bosing: tub mantiq va manbalar ochiladi.</p>
+      <ul>{% for l in hero.links[:7] %}<li data-i="{{ loop.index0 }}"><i class="t-{{ l.type }}"></i><b>{{ hero.names.get(l.from, l.from) }} → {{ hero.names.get(l.to, l.to) }}</b> — {{ l.bubble or l.title }}</li>{% endfor %}</ul>
+    {% else %}
+      <p class="muted small">Hozircha AI xaritasi yo'q, globusda yangiliklarda birga tilga olingan davlatlar ko'rsatilgan.
+        <a href="/map">Globus sahifasida</a> AI xaritasini yarating — urush, savdo va diplomatiya belgilari paydo bo'ladi.</p>
+    {% endif %}
+    <p class="small"><span title="Mojaro">🪖 tank va samolyot — mojaro</span> · <span>🏪 bozor — savdo</span> · <span>🏛 saroy — diplomatiya</span> · <span>🏗 kran — hamkorlik</span></p>
+    <p><a href="/map">To'liq globus →</a></p>
+  </div>
+</section>
+<script>
+(function () {
+  const H = {{ hero_json }}, C = {cooperation:"#16a34a", trade:"#0ea5e9", aid:"#14b8a6", diplomacy:"#6366f1",
+    pressure:"#f59e0b", conflict:"#dc2626", dependence:"#a855f7", rivalry:"#e11d48"};
+  document.querySelectorAll(".hero li i").forEach(i => { i.style.background = C[i.className.slice(2)] || "#d4af37"; });
+  document.querySelectorAll(".hero li").forEach(li => li.onclick = () => { location.href = "/map#" + (+li.dataset.i + 1); });
+  fetch(new URL("/static/world/countries-110m.json", location.origin)).then(r => r.json()).then(topo => {
+    WSGlobe(document.getElementById("heroglobe"), {topo, geo: H.geo, coords: H.coords, names: H.names, links: H.links, co: H.co,
+      colors: C, compact: true, start: [41, 64],
+      onLink: i => { location.href = "/map#" + (i + 1); }, onCountry: iso => { location.href = "/risk?c=" + iso; }});
+  });
+})();
+</script>
+{% endif %}
 <form class="filters" method="get">
   <input type="search" name="q" value="{{ f.q }}" placeholder="Qidirish: davlat, mavzu, nashr…">
   <select name="hours">
@@ -69,7 +105,8 @@
 {% for g in ov.groups[:80] %}
   {% set pubs = g|map(attribute='publisher')|unique|list %}
   <li class="story">
-    {% if pubs|length > 1 %}<span class="badge">{{ pubs|length }} ta manba</span>{% endif %}
+    {% if pubs|length >= 3 %}<span class="seal" title="{{ pubs|length }} ta mustaqil manba yozgan">{{ pubs|length }}<small>MANBA</small></span>
+    {% elif pubs|length > 1 %}<span class="badge">{{ pubs|length }} ta manba</span>{% endif %}
     <ul class="list inner">{{ art(g[0]) }}</ul>
     {% if g|length > 1 %}
     <details><summary>Yana {{ g|length - 1 }} ta xabar: {{ pubs[1:5]|join(', ') }}{% if pubs|length > 5 %}…{% endif %}</summary>

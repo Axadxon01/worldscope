@@ -2,9 +2,10 @@
 {% block title %}{% if detail %}{{ detail.name }} · {% endif %}Xavf indeksi · WorldScope Lite{% endblock %}
 {% block mainclass %}wide{% endblock %}
 {% block head %}
-<link rel="stylesheet" href="/static/leaflet/leaflet.css">
-<script src="/static/leaflet/leaflet.js"></script>
 <script src="/static/world/topojson-client.min.js"></script>
+<script src="/static/vendor/d3-array.min.js"></script>
+<script src="/static/vendor/d3-geo.min.js"></script>
+<script src="/static/globe.js"></script>
 {% endblock %}
 {% macro pill(r) %}<span class="score" style="background:{{ r.color }}">{{ r.score if r.score is not none else '—' }}</span>{% endmacro %}
 {% block body %}
@@ -14,8 +15,8 @@
 
 <div class="riskwrap">
   <div>
-    <div id="riskmap" aria-label="Davlatlar xavf indeksi xaritasi"></div>
-    <p class="muted small">Davlatni bosing — tarkibi o'ng tomonda chiqadi.</p>
+    <div id="riskmap" class="globewrap"><canvas class="globe" id="riskglobe" aria-label="Davlatlar xavf indeksi globusi"></canvas></div>
+    <p class="muted small">Globusni aylantiring, davlatni bosing — tarkibi o'ng tomonda chiqadi.</p>
   </div>
 
   <aside>
@@ -24,6 +25,14 @@
       <h3 style="margin-top:0">{{ detail.name }} {{ pill(detail) }}</h3>
       <p class="small">{% if detail.rank %}{{ detail.rank }}-o'rin ({{ scored }} tadan, 1 = eng xavfli) · {% endif %}{{ detail.band }} ·
         {{ detail.coverage }}/{{ detail.of }} tarkibiy qism bo'yicha ma'lumot bor</p>
+      <div class="dials">{% for c in detail.components %}
+        <div class="dial"><svg viewBox="0 0 80 50" width="86" aria-hidden="true">
+          <path d="M8 40 A32 32 0 0 1 24 12.3" stroke="#16a34a" stroke-width="6" fill="none"/><path d="M24 12.3 A32 32 0 0 1 56 12.3" stroke="#eab308" stroke-width="6" fill="none"/>
+          <path d="M56 12.3 A32 32 0 0 1 72 40" stroke="#dc2626" stroke-width="6" fill="none"/>
+          {% if c.value is not none %}<g class="needle" style="transform: rotate({{ (c.value / 100 * 180 - 90)|round(1) }}deg)"><path d="M40 40 L40 13" stroke="var(--ink)" stroke-width="2.4" stroke-linecap="round"/></g>{% endif %}
+          <circle cx="40" cy="40" r="4" fill="var(--gold)"/></svg>
+          <b style="color:var(--ink)">{{ c.value|round|int if c.value is not none else '—' }}</b><br>{{ c.label }}</div>
+      {% endfor %}</div>
       {% for c in detail.components %}
       <div style="margin:10px 0">
         <div class="small" style="display:flex;justify-content:space-between"><b>{{ c.label }}</b>
@@ -66,38 +75,15 @@
 
 <script>
 const DATA = {{ payload }};
-const dark = matchMedia("(prefers-color-scheme: dark)").matches;
-const map = L.map("riskmap", {minZoom: 1, maxZoom: 6, zoomSnap: 0.5, worldCopyJump: false, attributionControl: true}).setView([30, 20], 1.5);
-map.attributionControl.setPrefix(false).addAttribution('Chegaralar: <a href="https://www.naturalearthdata.com/">Natural Earth</a>');
-const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const layer = {};
+for (const [iso, v] of Object.entries(DATA.scores)) if (v[0] !== null) layer[iso] = [v[0], v[1], `${v[0]} · ${v[3]}`];
+const names = Object.fromEntries(Object.entries(DATA.scores).map(([k, v]) => [k, v[2]]));
+const coords = {{ coords }};
 fetch(new URL("/static/world/countries-110m.json", location.origin)).then(r => r.json()).then(topo => {
-  const geo = topojson.feature(topo, topo.objects.countries);
-  const fixRing = ring => {
-    const lons = ring.map(p => p[0]);
-    if (Math.max(...lons) - Math.min(...lons) > 180) ring.forEach(p => { if (p[0] < 0) p[0] += 360; });
-  };
-  for (const f of geo.features) {
-    const g = f.geometry;
-    if (!g) continue;
-    (g.type === "Polygon" ? [g.coordinates] : g.type === "MultiPolygon" ? g.coordinates : []).forEach(poly => poly.forEach(fixRing));
-  }
-  let selected = null;
-  const layer = L.geoJSON(geo, {
-    style: f => {
-      const iso = DATA.geo[f.properties.name], s = iso && DATA.scores[iso];
-      const sel = iso && iso === DATA.selected;
-      return {weight: sel ? 2.2 : .6, color: sel ? (dark ? "#fff" : "#111827") : (dark ? "#475569" : "#b6c2d1"),
-              fillOpacity: s ? .85 : 1, fillColor: s ? s[1] : (dark ? "#1e293b" : "#f1f5f9")};
-    },
-    onEachFeature: (f, l) => {
-      const iso = DATA.geo[f.properties.name], s = iso && DATA.scores[iso];
-      if (!s) return;
-      if (iso === DATA.selected) selected = l;
-      l.bindTooltip(`<b>${esc(s[2])}</b><br>${s[0] ?? "—"} · ${esc(s[3])}`, {sticky: true});
-      l.on("click", () => { location.href = "/risk?c=" + iso; });
-    },
-  }).addTo(map);
-  if (selected) map.fitBounds(selected.getBounds(), {maxZoom: 4, padding: [40, 40], animate: false});
+  const g = WSGlobe(document.getElementById("riskglobe"), {topo, geo: DATA.geo, coords, names, links: [], compact: true,
+    start: DATA.selected && coords[DATA.selected] ? coords[DATA.selected] : [30, 40], onCountry: iso => { location.href = "/risk?c=" + iso; }});
+  g.setLayer(layer);
+  if (DATA.selected) g.focusCountry(DATA.selected);
 });
 </script>
 {% endblock %}
