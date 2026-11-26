@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block title %}AI tahlil · WorldScope Lite{% endblock %}
+{% block body %}
+<div class="cols">
+<aside>
+  <form method="post" action="/brief" class="card">
+    <h3>Yangi tahlil</h3>
+    {% if not ai %}
+    <p class="warn">AI o'chiq: serverda <code>GEMINI_API_KEY</code> yoki <code>ANTHROPIC_API_KEY</code> o'rnatilmagan. Kalit qo'shilgach shu tugma ishlaydi.
+      Kalitsiz tahlil (davlatlar, mavzular, ko'p manbali voqealar) Yangiliklar sahifasida bor.</p>
+    {% endif %}
+    <label>Til
+      <select name="lang"><option value="uz">O'zbekcha</option><option value="ru">Русский</option><option value="en">English</option></select>
+    </label>
+    <label>Davr
+      <select name="hours"><option value="12">12 soat</option><option value="24" selected>24 soat</option><option value="48">2 kun</option><option value="168">7 kun</option></select>
+    </label>
+    <label>Diqqat markazi (ixtiyoriy)
+      <input name="focus" maxlength="200" placeholder="masalan: Markaziy Osiyo, Ukraina, energetika">
+    </label>
+    <button {{ 'disabled' if not ai }}>Tahlil qilish</button>
+    <p class="muted small">Model: {{ model }}. Har bir da'vo manbaga [raqam] bilan bog'lanadi.</p>
+  </form>
+  {% if briefs %}
+  <div class="card">
+    <h3>Oldingi tahlillar</h3>
+    <ul class="plain">{% for b in briefs %}
+      <li><a href="/brief?id={{ b.id }}" class="{{ 'on' if current and current.id == b.id }}">{{ b.created[:16].replace('T',' ') }}</a>
+        <span class="muted">{{ b.lang }} · {{ b.hours }}s{% if b.focus %} · {{ b.focus }}{% endif %}</span></li>
+    {% endfor %}</ul>
+  </div>
+  {% endif %}
+</aside>
+<section>
+  {% if error %}<p class="warn">{{ error }}</p>{% endif %}
+  {% if current %}
+  <article class="brief">
+    <p class="muted small">{{ current.created[:16].replace('T',' ') }} UTC · {{ current.hours }} soat · {{ current.model }}{% if current.focus %} · Diqqat: {{ current.focus }}{% endif %}</p>
+    {{ current.html }}
+    <h3>Manbalar</h3>
+    <ol class="cites">{% for c in current.cites %}
+      <li id="c{{ c.n }}" value="{{ c.n }}"><a href="{{ c.url }}" target="_blank" rel="noopener noreferrer">{{ c.title }}</a> <span class="muted">— {{ c.publisher }}</span></li>
+    {% endfor %}</ol>
+    <p class="muted small">AI tahlili xato qilishi mumkin. Muhim xulosalarni manbaning o'zidan tekshiring.</p>
+  </article>
+  {% else %}
+  <div class="empty"><h2>Hali tahlil yo'q</h2><p>Chapdagi formadan birinchi tahlilni yarating.</p></div>
+  {% endif %}
+</section>
+</div>
+{% endblock %}

@@ -1,0 +1,46 @@
+<div id="intro" hidden role="dialog" aria-label="WorldScope ochilish sahnasi">
+  <svg viewBox="0 0 1000 600" aria-hidden="true">
+    <defs>
+      <radialGradient id="i-smoke" cx="50%" cy="45%" r="60%"><stop offset="0" stop-color="#22355c"/><stop offset=".55" stop-color="#0d1830"/><stop offset="1" stop-color="#050a14"/></radialGradient>
+      <radialGradient id="i-globe" cx="38%" cy="35%" r="70%"><stop offset="0" stop-color="#2a4d86"/><stop offset="1" stop-color="#0a1630"/></radialGradient>
+      <linearGradient id="i-steel" x1="0" x2="1"><stop offset="0" stop-color="#8c96a8"/><stop offset=".5" stop-color="#f4f7fb"/><stop offset="1" stop-color="#9aa4b6"/></linearGradient>
+    </defs>
+    <rect width="1000" height="600" fill="url(#i-smoke)"/>
+    <g class="i-ground"><ellipse cx="500" cy="566" rx="420" ry="16" fill="#000" opacity=".35"/></g>
+    <g class="i-globe"><circle cx="500" cy="300" r="170" fill="url(#i-globe)" stroke="#d4af37" stroke-width="2"/>
+      <g fill="none" stroke="#d4af37" stroke-opacity=".35"><ellipse cx="500" cy="300" rx="170" ry="60"/><ellipse cx="500" cy="300" rx="60" ry="170"/><ellipse cx="500" cy="300" rx="120" ry="170"/><line x1="330" y1="300" x2="670" y2="300"/></g></g>
+    <!-- Napoleon: bicorne worn sideways, hand in the waistcoat, sabre in the right hand -->
+    <g id="i-nap" class="fighter">
+      <g class="body" fill="#060b16" stroke="#d4af37" stroke-width="1.6" stroke-linejoin="round">
+        <path d="M300 410 L292 555 L320 555 L327 440 L335 440 L344 555 L372 555 L362 410 Z"/>
+        <path d="M285 250 Q330 232 372 250 L380 400 L396 474 L360 432 L300 432 L266 474 L280 400 Z"/>
+        <circle cx="330" cy="208" r="24"/>
+        <path d="M258 198 Q330 126 402 198 Q330 176 258 198 Z"/>
+        <path d="M298 268 Q316 302 342 302 L346 290 Q322 290 312 262 Z" fill="#0d1526"/>
+      </g>
+      <g class="arm"><path d="M358 258 L440 236" stroke="#060b16" stroke-width="17" stroke-linecap="round"/><path d="M358 258 L440 236" stroke="#d4af37" stroke-width="1.4" fill="none" opacity=".7"/>
+        <rect x="434" y="226" width="9" height="22" rx="3" fill="#d4af37" transform="rotate(-22 438 237)"/>
+        <path d="M442 236 Q488 218 532 196" stroke="url(#i-steel)" stroke-width="4.5" stroke-linecap="round" fill="none"/></g>
+    </g>
+    <!-- Kutuzov: heavier, bicorne worn fore-and-aft, the eye patch; drawn facing right, then mirrored -->
+    <g id="i-kut" class="fighter">
+      <g transform="translate(1000 0) scale(-1 1)">
+        <g class="body" fill="#060b16" stroke="#d4af37" stroke-width="1.6" stroke-linejoin="round">
+          <path d="M296 418 L288 555 L318 555 L326 446 L336 446 L346 555 L376 555 L368 418 Z"/>
+          <path d="M272 252 Q330 226 390 252 L402 420 L330 442 L258 420 Z"/>
+          <circle cx="330" cy="206" r="27"/>
+          <path d="M296 196 Q312 142 334 136 Q358 142 366 196 Q331 186 296 196 Z"/>
+          <path d="M314 196 L350 207" stroke="#d4af37" stroke-width="3"/>
+          <path d="M276 330 L384 330" stroke="#d4af37" stroke-width="5" opacity=".75"/>
+        </g>
+        <g class="arm"><path d="M362 260 L440 236" stroke="#060b16" stroke-width="18" stroke-linecap="round"/><path d="M362 260 L440 236" stroke="#d4af37" stroke-width="1.4" fill="none" opacity=".7"/>
+          <rect x="434" y="226" width="9" height="22" rx="3" fill="#d4af37" transform="rotate(-22 438 237)"/>
+          <path d="M442 236 Q488 218 532 196" stroke="url(#i-steel)" stroke-width="4.5" stroke-linecap="round" fill="none"/></g>
+      </g>
+    </g>
+    <text class="i-title" x="500" y="112" text-anchor="middle">World<tspan fill="#f4e7bf">Scope</tspan></text>
+    <text class="i-sub" x="500" y="146" text-anchor="middle">Napoleon va Kutuzov · 1812 · dunyo siyosati — kuchlar to'qnashuvi</text>
+  </svg>
+  <canvas aria-hidden="true"></canvas>
+  <button type="button" class="i-skip">O'tkazib yuborish ⏭</button>
+</div>

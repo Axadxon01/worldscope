@@ -1,0 +1,131 @@
+{% extends "base.html" %}
+{% block title %}{% if iso %}{{ name(iso) }} · {% endif %}Davlatlar · WorldScope Lite{% endblock %}
+{% block head %}{% if iso %}
+<script src="{{ asset('world/topojson-client.min.js') }}"></script>
+<script src="{{ asset('vendor/d3-array.min.js') }}"></script>
+<script src="{{ asset('vendor/d3-geo.min.js') }}"></script>
+<script src="{{ asset('globe.js') }}"></script>{% endif %}
+{% endblock %}
+{% block body %}
+{% if not iso %}
+<h2>Davlatlar</h2>
+<form method="get" action="/country" class="card debtpick" onsubmit="location.href='/country/'+this.c.value; return false;">
+  <div class="pickrow">
+    <select name="c" required onchange="this.form.onsubmit()">
+      <option value="">— davlatni tanlang —</option>
+      {% for t, label in TIERS.items() %}<optgroup label="{{ label }}">{% for o in options if o.tier == t %}<option value="{{ o.iso }}">{{ o.name }}{% if o.name != o.en %} ({{ o.en }}){% endif %}</option>{% endfor %}</optgroup>{% endfor %}
+    </select>
+  </div>
+  <p class="muted small">Bitta davlat haqida hammasi bir sahifada: xavf indeksi, asosiy raqamlar, qarz, sanksiyalar, savdo hamkorlari,
+    AI xaritasidagi aloqalari, ikki davlat tahlillari, bashoratlar va so'nggi yangiliklar.</p>
+</form>
+{% for t, label in TIERS.items() %}
+<h3>{{ label }}</h3>
+<p class="countrylist">{% for o in options if o.tier == t %}<a href="/country/{{ o.iso }}">{{ o.name }}</a>{% endfor %}</p>
+{% endfor %}
+{% else %}
+<header class="countryhead">
+  <div>
+    <h1><span class="flag" aria-hidden="true">{{ flag }}</span> {{ name(iso) }} <span class="muted small">{{ en }}</span></h1>
+    <span class="tierb t{{ tier }}">{{ TIER_SHORT[tier] }}</span>
+    {% if r and r.score is not none %}<a href="/risk?c={{ iso }}" class="score" style="background:{{ r.color }}" title="Xavf indeksi: {{ r.band }}">{{ r.score }}</a>{% endif %}
+  </div>
+  <div class="noprint">
+    {% if watched %}<span class="chip c">📌 Kuzatilmoqda</span>{% else %}
+    <form method="post" action="/watch/add" style="display:inline"><input type="hidden" name="kind" value="country"><input type="hidden" name="value" value="{{ iso }}"><button class="ghost">📌 Kuzatish</button></form>{% endif %}
+    <button type="button" class="ghost" data-pdf="WorldScope - {{ name(iso) }}">📄 PDF</button>
+  </div>
+</header>
+
+<div class="countrygrid">
+  <div class="globewrap mini"><canvas class="globe" id="cglobe" aria-label="{{ name(iso) }} globusda"></canvas></div>
+  <div>
+    <h3>Asosiy raqamlar <span class="muted small">Jahon banki</span></h3>
+    {% if wb %}
+    <table class="facts small-t"><tbody>
+      {% for code, label, unit in INDICATORS if wb.get(code) %}<tr><td>{{ label }}</td><td><b>{{ human(wb[code].value, unit) }}</b> <span class="yr">{{ wb[code].year }}</span></td></tr>{% endfor %}
+    </tbody></table>
+    {% else %}<p class="muted small">Raqamlar hali kelmadi — sahifani birozdan keyin yangilang.</p>{% endif %}
+    {% if r %}
+    <h3>Xavf indeksi <a class="small" href="/risk?c={{ iso }}">batafsil →</a></h3>
+    {% for c in r.components if c.value is not none %}
+      <div class="small rowbar"><span>{{ c.label }}</span><span class="meter"><i style="width:{{ c.value }}%;background:{{ 'var(--bad)' if c.value >= 60 else ('#eab308' if c.value >= 40 else 'var(--good)') }}"></i></span><b>{{ c.value|round|int }}</b></div>
+    {% endfor %}
+    {% endif %}
+  </div>
+</div>
+
+<div class="grid2">
+  <section class="card">
+    <h3>💰 Qarz <a class="small" href="/debt?c={{ iso }}">batafsil →</a></h3>
+    {% if debt_rows %}
+      <table class="facts small-t"><tbody>{% for d in debt_rows %}<tr><td>{{ d.label }}</td><td><b>{{ d.now }}</b> <span class="yr">{{ d.year }}</span></td></tr>{% endfor %}</tbody></table>
+    {% elif debt_wait %}<p class="muted small">Jahon banki ma'lumotlari yuklanmoqda — birozdan keyin yangilang.</p>
+    {% else %}<p class="muted small">Jahon bankida bu davlat qarzi haqida ma'lumot yo'q.</p>{% endif %}
+  </section>
+  <section class="card">
+    <h3>📁 Sanksiyalar <a class="small" href="/sanctions?c={{ iso }}">ro'yxat →</a></h3>
+    {% if sanc %}<p><b>{{ sanc.total }}</b> ta yozuv shu davlatga bog'langan: {% for k, n in sanc.lists.items() %}{{ k }} {{ n }}{{ ", " if not loop.last }}{% endfor %}.</p>
+    {% else %}<p class="muted small">Ro'yxatlarda bu davlatga bog'langan yozuv yo'q{% if not sanc %} (yoki ro'yxatlar hali yuklanmagan){% endif %}.</p>{% endif %}
+  </section>
+  <section class="card">
+    <h3>🚢 Savdo hamkorlari {% if flows and flows.year %}<span class="muted small">UN Comtrade, {{ flows.year }}</span>{% endif %}
+      <a class="small" href="/map?trade={{ iso }}">globusda →</a></h3>
+    {% if flows and flows.year %}
+      <div class="tradecols">
+        <div><b class="small">Eksport</b>{% for p, v in trade_top(flows.exports, 6) %}<div class="small"><a href="/country/{{ p }}">{{ name(p) }}</a> — {{ human(v, "usd") }}</div>{% endfor %}</div>
+        <div><b class="small">Import</b>{% for p, v in trade_top(flows.imports, 6) %}<div class="small"><a href="/country/{{ p }}">{{ name(p) }}</a> — {{ human(v, "usd") }}</div>{% endfor %}</div>
+      </div>
+    {% elif flows %}<p class="muted small">Bu davlat UN Comtrade'ga so'nggi yillar uchun ma'lumot bermagan.</p>
+    {% else %}<p class="muted small">Comtrade ma'lumotlari yuklanmoqda — birozdan keyin yangilang.</p>{% endif %}
+  </section>
+  <section class="card">
+    <h3>🗞️ Kim ko'p yozmoqda <span class="muted small">so'nggi {{ 7 }} kun</span></h3>
+    {% if camps %}{% for k, n in camps %}<span class="chip">{{ CAMPS[k] }} — {{ n }}</span>{% endfor %}
+      <p class="small"><a href="/framing">OAV talqinini solishtirish →</a></p>
+    {% else %}<p class="muted small">Ma'lum lagerlardan xabar topilmadi.</p>{% endif %}
+  </section>
+</div>
+
+{% if links %}
+<h3>🌐 AI xaritasidagi aloqalari</h3>
+<ul class="plain">{% for l in links %}<li><span class="chip">{{ TYPES.get(l.type, l.type) }}</span> <b>{{ name(l.from) }} → {{ name(l.to) }}</b> — {{ l.bubble or l.title }}</li>{% endfor %}</ul>
+{% endif %}
+
+{% if pairs_list %}
+<h3>⚖️ Ikki davlat tahlillari</h3>
+<table class="facts small-t"><tbody>{% for p in pairs_list %}
+  <tr><td><a href="/pair?a={{ iso }}&b={{ p.other }}{% if p.c %}&c={{ p.c }}{% endif %}&lang={{ p.lang }}">{{ name(iso) }} ↔ {{ name(p.other) }}{% if p.c %} ({{ name(p.c) }}){% endif %}</a></td>
+    <td><b class="{{ 'pos' if p.score > 1 else 'neg' if p.score < -1 else 'mid' }}">{{ '%+d'|format(p.score) }}</b> {{ p.label }}</td><td class="small">{{ p.created|ago }}</td></tr>
+{% endfor %}</tbody></table>
+{% endif %}
+
+{% if preds %}
+<h3>🎯 Bashoratlar</h3>
+<table class="facts small-t"><tbody>{% for p in preds %}
+  <tr><td>{{ name(p.a) }} ↔ {{ name(p.b) }}: {{ p.title }}</td><td>{{ p.chance }}%</td><td class="small">{{ STATUS[p.status] }} · {{ p.due[:10] }}</td></tr>
+{% endfor %}</tbody></table>
+<p class="small"><a href="/predictions">Bashoratlar hisobi →</a></p>
+{% endif %}
+
+<h3>📰 So'nggi voqealar</h3>
+{% if groups %}
+<ul class="list">{% for g in groups %}{% set pubs = g|map(attribute='publisher')|unique|list %}
+  <li class="art"><a class="t" href="{{ g[0].url }}" target="_blank" rel="noopener noreferrer">{{ g[0].title }}</a>
+    <div class="meta">{{ pubs[:3]|join(', ') }}{% if pubs|length > 3 %} va yana {{ pubs|length - 3 }}{% endif %} · {{ g[0].published|ago }}</div></li>
+{% endfor %}</ul>
+{% else %}<p class="muted small">So'nggi bir haftada bu davlat haqida xabar yig'ilmagan.</p>{% endif %}
+
+<script>
+(function () {
+  const D = {{ payload }};
+  const C = {cooperation:"#16a34a", trade:"#0ea5e9", aid:"#14b8a6", diplomacy:"#6366f1", pressure:"#f59e0b", conflict:"#dc2626", dependence:"#a855f7", rivalry:"#e11d48"};
+  fetch(new URL("/static/world/countries-110m.json", location.origin)).then(r => r.json()).then(topo => {
+    const g = WSGlobe(document.getElementById("cglobe"), {topo, geo: D.geo, coords: D.coords, names: D.names, links: D.links, colors: C,
+      compact: true, start: D.coords[D.focus], onCountry: iso => { location.href = "/country/" + iso; }, onLink: () => { location.href = "/map"; }});
+    g.focusCountry(D.focus);
+  });
+})();
+</script>
+{% endif %}
+{% endblock %}

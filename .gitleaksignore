@@ -1,0 +1,2 @@
+# The EU sanctions file URL carries a fixed, published token (base64 of "token-2017"), not a secret.
+5a3231e61797de992b1d38171a86196c2078614f:lite/sanctions.py:generic-api-key:57

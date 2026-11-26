@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+{% block title %}OAV talqini · WorldScope Lite{% endblock %}
+{% macro cites(list_) %}{% for n in list_ %}<a class="cite" href="#i{{ n }}">{{ n }}</a>{% endfor %}{% endmacro %}
+{% block body %}
+<form method="post" action="/framing" class="card debtpick">
+  <div class="pickrow">
+    <input name="topic" maxlength="150" placeholder="Mavzu: masalan Ukraine peace talks, Iran nuclear, Afghanistan Taliban…" style="flex:2">
+    <select name="lang" title="Til"><option value="uz">O'zbekcha</option><option value="ru">Русский</option><option value="en">English</option></select>
+    <button {{ 'disabled' if not ai }}>Taqqoslash</button>
+  </div>
+  <p class="muted small">Bir voqeani turli OAV lagerlari — Rossiya, G'arb, Xitoy, O'zbekiston, Turkiya, arab dunyosi va boshqalar — qanday yoritayotganini
+    solishtiradi: nimani birinchi qo'yadi, nimani tashlab ketadi, qanday baholovchi so'zlar ishlatadi va qaysi faktlarda hamma bir xil.
+    Mavzuni inglizcha yoki ruscha yozsangiz ko'proq manba topiladi. AI faqat sarlavha va qisqa matnni o'qiydi.</p>
+  {% if not ai %}<p class="warn small">AI kaliti o'rnatilmagan.</p>{% endif %}
+</form>
+{% if error %}<p class="warn">{{ error }}</p>{% endif %}
+
+{% if current %}{% set d = current.data %}
+<section class="debt">
+  <h2>{{ current.topic }} <button type="button" class="ghost small noprint" data-pdf="WorldScope - OAV talqini">📄 PDF</button></h2>
+  <p class="muted small">{{ current.created[:16].replace('T', ' ') }} UTC · {{ current.model }} · {{ d['items']|length }} ta sarlavha,
+    {{ d.camps|length }} ta lager</p>
+  {% if d.story %}<p class="summary">{{ d.story }}</p>{% endif %}
+
+  {% if d.facts %}
+  <h3>Hamma lager tan olgan faktlar</h3>
+  <ul>{% for f in d.facts %}<li>{{ f.text }} {{ cites(f.cites) }}</li>{% endfor %}</ul>
+  {% endif %}
+
+  <h3>Har bir lager qanday yoritmoqda</h3>
+  <div class="camps">{% for c in d.camps %}
+    <div class="camp">
+      <h4>{{ c.label }}</h4>
+      <p class="small"><span class="tone-{{ c.tone }}">{{ {'critical': 'tanqidiy', 'neutral': 'betaraf', 'supportive': 'qo\'llab-quvvatlovchi'}[c.tone] }}</span>{% if c.toward %} — {{ c.toward }}ga nisbatan{% endif %}</p>
+      {% if c.angle %}<p>{{ c.angle }} {{ cites(c.cites) }}</p>{% endif %}
+      {% if c.emphasis %}<div class="small"><b>Birinchi o'ringa qo'yadi:</b><ul>{% for x in c.emphasis %}<li>{{ x }}</li>{% endfor %}</ul></div>{% endif %}
+      {% if c.omits %}<div class="small"><b>Aytmaydi (boshqalar aytgan):</b><ul>{% for x in c.omits %}<li>{{ x }}</li>{% endfor %}</ul></div>{% endif %}
+      {% if c.words %}<div class="small"><b>Baholovchi so'zlar:</b> {% for w in c.words %}<span class="word">{{ w }}</span>{% endfor %}</div>{% endif %}
+    </div>
+  {% endfor %}</div>
+
+  {% if d.disputes %}
+  <h3>Qarama-qarshi faktlar</h3>
+  <ul>{% for f in d.disputes %}<li>{{ f.text }} {{ cites(f.cites) }}</li>{% endfor %}</ul>
+  {% endif %}
+  {% if d.contrast %}<h3>Asosiy farq</h3><p>{{ d.contrast }}</p>{% endif %}
+  {% if d.caution %}<p class="muted small">⚠️ {{ d.caution }}</p>{% endif %}
+
+  <h3>Manbalar</h3>
+  <ol class="small">{% for a in d['items'] %}
+    <li id="i{{ a.n }}"><span class="k">{{ CAMPS.get(a.camp, a.camp) }}</span> <a href="{{ a.url }}" target="_blank" rel="noopener">{{ a.title }}</a>
+      <span class="muted">{{ a.publisher }} · {{ a.published[:10] }}</span></li>
+  {% endfor %}</ol>
+</section>
+{% endif %}
+
+<h3>Bir nechta lager yoritgan voqealar <span class="muted small">so'nggi 3 kun</span></h3>
+{% if stories %}
+<div class="list">{% for s in stories %}
+  <div class="art">
+    <span class="t">{{ s.title }}</span>
+    <div class="meta">{{ s.size }} ta sarlavha · {% for k in s.camps %}<span class="chip">{{ CAMPS[k] }}</span>{% endfor %}</div>
+    <form method="post" action="/framing" class="row" style="margin-top:6px">
+      <input type="hidden" name="ids" value="{{ s.ids|join(',') }}">
+      <select name="lang" title="Til"><option value="uz">O'zbekcha</option><option value="ru">Русский</option><option value="en">English</option></select>
+      <button class="ghost small" {{ 'disabled' if not ai }}>Lagerlarni taqqoslash</button>
+    </form>
+  </div>
+{% endfor %}</div>
+{% else %}
+<p class="muted">Hozircha bir voqeani kamida ikki lager yoritgani topilmadi. Yuqorida mavzu yozib qidiring.</p>
+{% endif %}
+
+{% if camp_count %}
+<p class="muted small">So'nggi 3 kundagi manbalar: {% for k, n in camp_count %}{{ CAMPS[k] }} — {{ n }}{{ ', ' if not loop.last }}{% endfor %}.</p>
+{% endif %}
+
+{% if recent %}
+<details class="small"><summary>Oldingi taqqoslashlar</summary>
+  <ul class="plain">{% for r in recent %}<li><a href="/framing?id={{ r.id }}">{{ r.topic }}</a> <span class="muted">{{ r.created[:16].replace('T', ' ') }} · {{ r.lang }}</span></li>{% endfor %}</ul>
+</details>
+{% endif %}
+{% endblock %}

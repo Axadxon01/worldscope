@@ -6,6 +6,10 @@ you question the collection with an AI analyst that cites every claim and says w
 evidence is thin. Facts, reported claims, analysis and speculation are always labelled
 apart.
 
+> **Yengil versiya:** [`lite/`](lite/README.md) is a single-process version (FastAPI + SQLite,
+> no Docker) that already collects from Google News, GDELT, public Telegram channels and RSS,
+> groups stories and writes cited AI briefs. It runs on Render's free plan on its own.
+
 ## Status
 
 Milestones 1 and 2 of 11 are complete: the running stack, design system and CI, then the

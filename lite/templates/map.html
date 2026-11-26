@@ -1,0 +1,388 @@
+{% extends "base.html" %}
+{% block title %}Xarita · WorldScope Lite{% endblock %}
+{% block mainclass %}wide{% endblock %}
+{% block head %}
+<link rel="stylesheet" href="/static/leaflet/leaflet.css">
+<script src="/static/leaflet/leaflet.js"></script>
+<script src="/static/world/topojson-client.min.js"></script>
+<script src="/static/vendor/d3-array.min.js"></script>
+<script src="/static/vendor/d3-geo.min.js"></script>
+<script src="/static/globe.js"></script>
+{% endblock %}
+{% block body %}
+<div class="mapwrap">
+  <div id="map" aria-label="Davlatlar orasidagi bog'liqliklar xaritasi"></div>
+  <div id="globebox" hidden><canvas class="globe" id="globe" aria-label="Davlatlar orasidagi bog'liqliklar globusi"></canvas></div>
+
+  <aside class="mappanel" id="panel">
+    <div class="pane-head">
+      <b>Bog'liqliklar xaritasi</b>
+      <button class="ghost small" id="collapse" title="Yig'ish">–</button>
+    </div>
+    <div class="pane-body">
+      {% if error %}<p class="warn">{{ error }}</p>{% endif %}
+
+      <div class="modes" role="group" aria-label="Ko'rinish">
+        <button type="button" data-mode="globe">🌐 Globus</button><button type="button" data-mode="trade">🚢 Savdo</button><button type="button" data-mode="flat">🗺 Tekis xarita</button>
+      </div>
+      <div id="tradebox" hidden>
+        <div class="row">
+          <select id="tradeiso" title="Davlat">{% for iso, n in names.items()|sort(attribute=1) if iso in payload_isos %}<option value="{{ iso }}">{{ n }}</option>{% endfor %}</select>
+          <div class="modes" role="group" aria-label="Oqim"><button type="button" data-flow="exports" class="on">Eksport</button><button type="button" data-flow="imports">Import</button></div>
+        </div>
+        <p class="muted small" id="tradenote">Davlatni tanlang: uning tovar savdosi hamkorlar bo'yicha globusda oqim bo'lib chiziladi (UN Comtrade).</p>
+        <ol class="linklist" id="tradelist"></ol>
+      </div>
+      <div class="modes" role="group" aria-label="Davlatlar rangi" id="layers">
+        <button type="button" data-layer="" class="on">Aloqalar</button><button type="button" data-layer="risk">Xavf indeksi</button><button type="button" data-layer="sanctions">Sanksiyalar</button>
+      </div>
+      <div id="detail" class="detail" hidden></div>
+
+      <div id="overview">
+        {% if current %}
+          {% if timeline|length > 1 %}
+          {% set pos = (timeline|map(attribute='id')|list).index(current.id) %}
+          <div class="timemachine" aria-label="Vaqt mashinasi">
+            <div class="tmrow">
+              {% if pos > 0 %}<a class="ghost small" href="/map?id={{ timeline[pos - 1].id }}" title="Oldingi xarita">◀</a>{% endif %}
+              <input type="range" id="tm" min="0" max="{{ timeline|length - 1 }}" value="{{ pos }}" aria-label="Xarita sanasi">
+              {% if pos < timeline|length - 1 %}<a class="ghost small" href="/map?id={{ timeline[pos + 1].id }}" title="Keyingi xarita">▶</a>{% endif %}
+            </div>
+            <p class="small"><b id="tmdate">{{ current.created[:10] }}</b> · {{ pos + 1 }}/{{ timeline|length }} xarita{% if current.auto %} · avtomatik{% endif %}
+              {% if pos < timeline|length - 1 %} · <a href="/map">eng yangisi →</a>{% endif %}</p>
+            {% if diff %}<p class="small">Oldingi xaritadan ({{ diff.since[:10] }}) beri: <b>{{ diff.new|length }}</b> ta yangi aloqa{% if diff.gone %}, <b>{{ diff.gone|length }}</b> tasi yo'qoldi{% endif %}.</p>
+              {% if diff.gone %}<details class="small"><summary>Yo'qolgan aloqalar</summary><ul class="plain">{% for g in diff.gone %}<li>{{ names.get(g.from, g.from) }} → {{ names.get(g.to, g.to) }}: {{ g.title }}</li>{% endfor %}</ul></details>{% endif %}
+            {% endif %}
+          </div>
+          <script>const TIMELINE = {{ timeline|map(attribute='id')|list|tojson }}, TDATES = {{ timeline|map(attribute='created')|list|tojson }};</script>
+          {% endif %}
+          <p class="muted small">{{ current.created[:16].replace('T',' ') }} UTC · {{ current.hours }} soat · {{ current.model }}{% if current.focus %} · {{ current.focus }}{% endif %}</p>
+          {% if current.data.summary %}<p class="summary">{{ current.data.summary }}</p>{% endif %}
+          <ol class="linklist" id="linklist"></ol>
+        {% elif ai %}
+          <p>Hali AI xaritasi yo'q. Pastdagi tugma bilan yarating: AI yangiliklardan davlatlar orasidagi
+            muhim bog'liqliklarni topib, har biriga "nima uchun" degan savolga javob yozadi.</p>
+        {% else %}
+          <p class="warn">AI o'chiq. Hozir faqat yangiliklarda birga tilga olingan davlatlar kulrang chiziq bilan ko'rsatilgan.</p>
+        {% endif %}
+      </div>
+
+      <form method="post" action="/map" class="mapform" id="mapform">
+        <div class="row">
+          <select name="hours" title="Davr">
+            <option value="24">24 soat</option><option value="48" selected>2 kun</option><option value="168">7 kun</option>
+          </select>
+          <select name="lang" title="Til"><option value="uz">O'zbekcha</option><option value="ru">Русский</option><option value="en">English</option></select>
+        </div>
+        <input name="focus" maxlength="200" placeholder="Diqqat (ixtiyoriy): Markaziy Osiyo, energetika…">
+        <button {{ 'disabled' if not ai }} id="gen">{{ 'Xaritani yangilash' if current else 'AI xaritasini yaratish' }}</button>
+        <p class="muted small" id="genwait" hidden>AI yangiliklarni o'qiyapti, 20–60 soniya…</p>
+      </form>
+
+      <div class="toggles small">
+        <label><input type="checkbox" id="showBubbles" checked> Bulutchalar</label>
+        <label title="O'chirilsa urush va savdo belgilari o'rniga faqat chiziqlar qoladi"><input type="checkbox" id="showSigns" checked> Ramziy belgilar</label>
+        <label><input type="checkbox" id="showCo" {{ '' if current else 'checked' }}> Birga tilga olinish ({{ hours }} soat)</label>
+      </div>
+      <div class="legend small" id="legend"></div>
+
+      {% if maps|length > 1 %}
+      <details class="small"><summary>Oldingi xaritalar</summary>
+        <ul class="plain">{% for m in maps %}
+          <li><a href="/map?id={{ m.id }}" class="{{ 'on' if current and current.id == m.id }}">{{ m.created[:16].replace('T',' ') }}</a>
+            <span class="muted">{{ m.lang }} · {{ m.hours }}s{% if m.focus %} · {{ m.focus }}{% endif %}</span></li>
+        {% endfor %}</ul>
+      </details>
+      {% endif %}
+    </div>
+  </aside>
+</div>
+
+<script>
+const DATA = {{ payload }};
+const COLORS = {cooperation:"#16a34a", trade:"#0ea5e9", aid:"#14b8a6", diplomacy:"#6366f1",
+                pressure:"#f59e0b", conflict:"#dc2626", dependence:"#a855f7", rivalry:"#e11d48"};
+const CONF = {high:"Yuqori ishonch: bir nechta mustaqil manba", medium:"O'rta ishonch: bitta ishonchli manba",
+              low:"Past ishonch: bir tomonning bayonoti yoki bitta kanal"};
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const dark = document.documentElement.dataset.theme !== "light";
+
+const map = L.map("map", {minZoom: 2, maxZoom: 7, zoomSnap: 0.5, maxBounds: [[-75, -250], [85, 250]],
+                         attributionControl: true}).setView([42, 55], 3);
+map.attributionControl.setPrefix(false).addAttribution('Chegaralar: <a href="https://www.naturalearthdata.com/">Natural Earth</a>');
+map.createPane("countries").style.zIndex = 200;
+
+// Country shapes are served by this site (Natural Earth, public domain): no tile service, no API key.
+fetch(new URL("/static/world/countries-110m.json", location.origin)).then(r => r.json()).then(topo => {
+  const geo = topojson.feature(topo, topo.objects.countries);
+  // Rings that cross the 180° meridian (Russia's far east, Fiji) would otherwise be drawn as a band
+  // across the whole map; shift their western half by 360° so each ring stays in one piece.
+  const fixRing = ring => {
+    const lons = ring.map(p => p[0]);
+    if (Math.max(...lons) - Math.min(...lons) > 180) ring.forEach(p => { if (p[0] < 0) p[0] += 360; });
+  };
+  for (const f of geo.features) {
+    const g = f.geometry;
+    if (!g) continue;
+    const polys = g.type === "Polygon" ? [g.coordinates] : g.type === "MultiPolygon" ? g.coordinates : [];
+    polys.forEach(poly => poly.forEach(fixRing));
+  }
+  L.geoJSON(geo, {
+    pane: "countries", interactive: false,
+    style: f => {
+      const iso = DATA.geo[f.properties.name], hot = iso && involved.has(iso);
+      return {weight: hot ? .9 : .6, color: dark ? "#475569" : "#b6c2d1", fillOpacity: 1,
+              fillColor: hot ? (dark ? "#3d3519" : "#fdf0c4") : (dark ? "#1e293b" : "#f8fafc")};
+    },
+  }).addTo(map);
+});
+
+// A curved path between two countries, bent to one side so A→B and B→A do not overlap.
+function arc(a, b, bend = 0.22, n = 40) {
+  let [y1, x1] = a, [y2, x2] = b;
+  if (x2 - x1 > 180) x2 -= 360; else if (x1 - x2 > 180) x2 += 360;   // take the short way round
+  const mx = (x1 + x2) / 2, my = (y1 + y2) / 2, dx = x2 - x1, dy = y2 - y1;
+  const cx = mx - dy * bend, cy = my + dx * bend;
+  const pts = [];
+  for (let i = 0; i <= n; i++) {
+    const t = i / n, u = 1 - t;
+    pts.push([u * u * y1 + 2 * u * t * cy + t * t * y2, u * u * x1 + 2 * u * t * cx + t * t * x2]);
+  }
+  return pts;
+}
+
+const linkLayer = L.layerGroup().addTo(map), coLayer = L.layerGroup(), dotLayer = L.layerGroup().addTo(map);
+const heads = [], bubbles = [], lines = [];
+
+function arrowHead(pts, color, i) {
+  const m = L.marker(pts[pts.length - 1], {interactive: false, keyboard: false,
+    icon: L.divIcon({className: "arrowhead", iconSize: [16, 16], html: `<i style="border-left-color:${color}"></i>`})});
+  m._pts = pts;
+  heads.push(m);
+  return m;
+}
+function turnHeads() {
+  for (const m of heads) {
+    const p = m._pts, a = map.latLngToLayerPoint(p[p.length - 4]), b = map.latLngToLayerPoint(p[p.length - 1]);
+    const deg = Math.atan2(b.y - a.y, b.x - a.x) * 180 / Math.PI;
+    const el = m.getElement(); if (el) el.firstChild.style.transform = `rotate(${deg}deg)`;
+  }
+}
+
+const involved = new Set();
+DATA.links.forEach((l, i) => {
+  const a = DATA.coords[l.from], b = DATA.coords[l.to];
+  if (!a || !b) return;
+  involved.add(l.from); involved.add(l.to);
+  const reverse = DATA.links.findIndex(o => o.from === l.to && o.to === l.from);
+  const pts = arc(a, b, reverse >= 0 && reverse < i ? -0.22 : 0.22);
+  const color = COLORS[l.type] || "#6366f1";
+  const line = L.polyline(pts, {color, weight: 3.5, opacity: .85, dashArray: l.confidence === "low" ? "6 7" : null})
+    .on("click", () => show(i)).addTo(linkLayer);
+  lines[i] = line;
+  arrowHead(pts, color, i).addTo(linkLayer);
+  const tip = L.tooltip({permanent: true, interactive: true, direction: "top", className: `bubble t-${l.type}`, opacity: 1, offset: [0, -4]})
+    .setLatLng(pts[Math.floor(pts.length / 2)])
+    .setContent(`<span class="num" style="background:${color}">${i + 1}</span>${esc(l.bubble || l.title)}`);
+  tip._i = i;
+  bubbles.push(tip);
+});
+
+DATA.co.forEach(c => {
+  const a = DATA.coords[c.from], b = DATA.coords[c.to];
+  if (!a || !b) return;
+  const ex = c.examples.map(e => `<li><a href="${esc(e.url)}" target="_blank" rel="noopener noreferrer">${esc(e.title)}</a> <span class="muted">— ${esc(e.publisher)}</span></li>`).join("");
+  L.polyline(arc(a, b, 0.12), {color: "#94a3b8", weight: 1 + Math.min(c.count, 8) * 0.5, opacity: .7, dashArray: "3 6"})
+    .bindPopup(`<b>${esc(DATA.names[c.from])} — ${esc(DATA.names[c.to])}</b><br><span class="muted">${c.count} ta xabarda birga tilga olingan${c.category ? " · " + esc(DATA.cats[c.category] || c.category) : ""}</span><ul class="ex">${ex}</ul>`, {maxWidth: 320})
+    .addTo(coLayer);
+  involved.add(c.from); involved.add(c.to);
+});
+
+for (const iso of involved) {
+  const p = DATA.coords[iso];
+  if (!p) continue;
+  L.circleMarker(p, {radius: 4, color: dark ? "#e2e8f0" : "#1e293b", weight: 1.5, fillColor: dark ? "#0f172a" : "#fff", fillOpacity: 1})
+    .bindTooltip(esc(DATA.names[iso]), {permanent: true, direction: "bottom", className: "cname", offset: [0, 4]})
+    .addTo(dotLayer);
+}
+
+function placeBubbles() {
+  const on = document.getElementById("showBubbles").checked;
+  bubbles.forEach(t => {
+    if (!on) { t.remove(); return; }
+    if (!map.hasLayer(t)) {
+      t.addTo(map);
+      t.getElement()?.addEventListener("click", () => show(t._i));
+    }
+  });
+  declutter();
+}
+// Bubbles are placed in order of importance; one that would cover an earlier one shrinks to its
+// number and opens on hover. Zooming in makes room, so more of them open up.
+function declutter() {
+  const placed = [];
+  for (const t of bubbles) {
+    const el = t.getElement();
+    if (!el) continue;
+    el.style.zIndex = 900 - t._i;  // the more important bubble stays on top
+    el.classList.remove("mini");
+    const r = el.getBoundingClientRect();
+    if (placed.some(p => r.left < p.right + 4 && r.right > p.left - 4 && r.top < p.bottom + 4 && r.bottom > p.top - 4)) {
+      el.classList.add("mini");
+      placed.push(el.getBoundingClientRect());
+    } else placed.push(r);
+  }
+}
+function toggleCo() { document.getElementById("showCo").checked ? coLayer.addTo(map) : coLayer.remove(); }
+document.getElementById("showBubbles").onchange = placeBubbles;
+document.getElementById("showCo").onchange = toggleCo;
+map.on("zoomend viewreset", () => { turnHeads(); declutter(); });
+map.on("moveend", declutter);
+placeBubbles(); toggleCo(); turnHeads();
+addEventListener("load", declutter);
+addEventListener("resize", () => setTimeout(declutter, 50));
+
+// Fit the view to what is drawn.
+const drawn = [...linkLayer.getLayers(), ...(DATA.links.length ? [] : coLayer.getLayers())].filter(l => l.getBounds);
+const panelPad = () => (innerWidth > 700 && !document.getElementById("panel").classList.contains("collapsed")) ? 390 : 30;
+if (drawn.length) map.fitBounds(L.featureGroup(drawn).getBounds(), {paddingTopLeft: [panelPad(), 40], paddingBottomRight: [40, 40], maxZoom: 5, animate: false});
+declutter();
+
+// The side list and the detail card.
+const list = document.getElementById("linklist");
+if (list) DATA.links.forEach((l, i) => {
+  const li = document.createElement("li");
+  const fresh = (DATA.fresh || []).includes(i) ? ' <span class="chip c">yangi</span>' : "";
+  li.innerHTML = `<span class="dot" style="background:${COLORS[l.type]}"></span><b>${esc(DATA.names[l.from])} → ${esc(DATA.names[l.to])}</b>${fresh}<br><span>${esc(l.title)}</span>`;
+  li.onclick = () => show(i);
+  list.appendChild(li);
+});
+
+function show(i, instant = false) {
+  const l = DATA.links[i], d = document.getElementById("detail");
+  const ev = l.evidence.map(e => `<li><a href="${esc(e.url)}" target="_blank" rel="noopener noreferrer">${esc(e.title)}</a> <span class="muted">— ${esc(e.publisher)}</span></li>`).join("");
+  d.innerHTML = `
+    <button class="ghost small back" onclick="hideDetail()">← Ro'yxat</button>
+    <div class="dhead"><span class="badge" style="background:${COLORS[l.type]}">${esc(DATA.types[l.type])}</span>
+      <span class="muted small" title="${esc(CONF[l.confidence])}">● ${l.confidence === "high" ? "yuqori" : l.confidence === "low" ? "past" : "o'rta"} ishonch</span></div>
+    <h3>${esc(DATA.names[l.from])} → ${esc(DATA.names[l.to])}</h3>
+    <p class="dtitle">${esc(l.title)}</p>
+    <div class="essence">💡 ${esc(l.bubble)}</div>
+    <h4>Tub mantiq</h4><p>${esc(l.logic)}</p>
+    <h4>Dalillar</h4><ol class="cites">${ev}</ol>
+    <p class="muted small">${esc(CONF[l.confidence])}. "Tub mantiq" — AI tahlili, manbalarni o'zingiz ham tekshiring.</p>`;
+  d.hidden = false;
+  document.getElementById("overview").hidden = true;
+  document.getElementById("panel").classList.remove("collapsed");
+  lines.forEach((ln, j) => ln && ln.setStyle({opacity: j === i ? 1 : .25, weight: j === i ? 5 : 3}));
+  bubbles.forEach(t => t.getElement()?.classList.toggle("dim", t._i !== i));
+  const opts = {paddingTopLeft: [panelPad() + 40, 80], paddingBottomRight: [80, 80], maxZoom: 5};
+  if (instant) map.fitBounds(lines[i].getBounds(), {...opts, animate: false});
+  else map.flyToBounds(lines[i].getBounds(), {...opts, duration: .6});
+  history.replaceState(null, "", "#" + (i + 1));
+}
+function hideDetail() {
+  history.replaceState(null, "", location.pathname + location.search);
+  document.getElementById("detail").hidden = true;
+  document.getElementById("overview").hidden = false;
+  lines.forEach(ln => ln && ln.setStyle({opacity: .85, weight: 3.5}));
+  bubbles.forEach(t => t.getElement()?.classList.remove("dim"));
+}
+
+document.getElementById("legend").innerHTML = Object.entries(DATA.types)
+  .map(([k, v]) => `<span><i style="background:${COLORS[k]}"></i>${esc(v)}</span>`).join("") +
+  `<span><i class="dash"></i>past ishonch</span><span><i class="co"></i>birga tilga olinish</span>`;
+const fromHash = parseInt(location.hash.slice(1), 10);
+if (fromHash >= 1 && fromHash <= DATA.links.length) setTimeout(() => show(fromHash - 1, true), 100);
+// ---- the globe: the default view; the flat Leaflet map stays underneath for the "Tekis" mode
+let G = null, mode = "globe";
+try { mode = localStorage.getItem("ws-mapmode") || "globe"; } catch (e) {}
+function setMode(m) {
+  mode = m;
+  if (m !== "trade") {
+    try { localStorage.setItem("ws-mapmode", m); } catch (e) {}
+    if (location.search.includes("trade=")) history.replaceState(null, "", "/map");
+  }
+  const onGlobe = m === "globe" || m === "trade";
+  document.getElementById("globebox").hidden = !onGlobe;
+  document.getElementById("layers").hidden = m !== "globe";
+  document.getElementById("tradebox").hidden = m !== "trade";
+  document.getElementById("overview").hidden = m === "trade";
+  document.querySelectorAll("[data-mode]").forEach(b => b.classList.toggle("on", b.dataset.mode === m));
+  const after = () => { if (m === "trade") loadTrade(); else if (G) { G.setLinks(DATA.links); G.clearFocus(); } };
+  if (G) { after(); return; }
+  if (onGlobe) {
+    fetch(new URL("/static/world/countries-110m.json", location.origin)).then(r => r.json()).then(topo => {
+      G = WSGlobe(document.getElementById("globe"), {topo, geo: DATA.geo, coords: DATA.coords, names: DATA.names,
+        links: DATA.links, co: DATA.co, colors: COLORS, panel: 380, onLink: i => show(i), onCountry: iso => G.focusCountry(iso)});
+      G.setSigns(document.getElementById("showSigns").checked);
+      if (fromHash >= 1 && fromHash <= DATA.links.length) G.focusLink(fromHash - 1);
+      after();
+    });
+  }
+}
+// trade flows: a country's goods exports or imports by partner, as arcs whose width follows the value
+const tradeCache = {};
+let flow = "exports";
+const usd = v => v >= 1e9 ? (v / 1e9).toFixed(1) + " mlrd $" : v >= 1e6 ? Math.round(v / 1e6) + " mln $" : Math.round(v / 1e3) + " ming $";
+async function loadTrade() {
+  const sel = document.getElementById("tradeiso"), iso = sel.value, note = document.getElementById("tradenote"), list = document.getElementById("tradelist");
+  history.replaceState(null, "", "/map?trade=" + iso);
+  if (!tradeCache[iso]) {
+    note.textContent = "UN Comtrade'dan olinmoqda… (birinchi marta 10–20 soniya)";
+    list.innerHTML = "";
+    try {
+      const r = await fetch(new URL("/api/trade/" + iso, location.origin));
+      tradeCache[iso] = await r.json();
+    } catch (e) { tradeCache[iso] = {year: null, error: "tarmoq xatosi"}; }
+  }
+  if (sel.value !== iso || mode !== "trade") return;
+  const t = tradeCache[iso], side = t[flow];
+  if (!t.year || !side) {
+    note.textContent = t.error ? "Comtrade hozir javob bermadi, birozdan keyin qayta urinib ko'ring." : "Bu davlat so'nggi yillar uchun UN Comtrade'ga ma'lumot bermagan.";
+    G.setLinks([]); list.innerHTML = ""; return;
+  }
+  const top = side.partners.slice(0, 15), max = top.length ? top[0][1] : 1;
+  const color = flow === "exports" ? "#16a34a" : "#3b82f6";
+  const links = top.map(([p, v], n) => ({from: flow === "exports" ? iso : p, to: flow === "exports" ? p : iso, type: "trade",
+    confidence: "high", color, width: 1.2 + 6 * Math.sqrt(v / max), sign: n < 5, title: usd(v), value: v}));
+  G.setLinks(links); G.focusCountry(iso);
+  const share = v => side.world ? ` · ${Math.round(100 * v / side.world)}%` : "";
+  note.textContent = `${t.year}-yil, ${flow === "exports" ? "eksport" : "import"}: jami ${side.world ? usd(side.world) : "—"}. Chiziq qalinligi — savdo hajmi.`;
+  list.innerHTML = top.map(([p, v]) => `<li><span class="dot" style="background:${color}"></span><b>${esc(DATA.names[p] || p)}</b> — ${usd(v)}${share(v)}</li>`).join("");
+}
+document.getElementById("tradeiso").onchange = loadTrade;
+document.querySelectorAll("[data-flow]").forEach(b => b.onclick = () => {
+  flow = b.dataset.flow;
+  document.querySelectorAll("[data-flow]").forEach(x => x.classList.toggle("on", x === b));
+  loadTrade();
+});
+const tm = document.getElementById("tm");
+if (tm) {
+  tm.oninput = () => { document.getElementById("tmdate").textContent = TDATES[tm.value].slice(0, 10); };
+  tm.onchange = () => { location.href = "/map?id=" + TIMELINE[tm.value]; };
+}
+document.querySelectorAll("[data-mode]").forEach(b => b.onclick = () => setMode(b.dataset.mode));
+document.getElementById("showSigns").onchange = e => G && G.setSigns(e.target.checked);
+const layerCache = {};
+document.querySelectorAll("[data-layer]").forEach(b => b.onclick = async () => {
+  document.querySelectorAll("[data-layer]").forEach(x => x.classList.toggle("on", x === b));
+  const k = b.dataset.layer;
+  if (!k) { G && G.setLayer(null); return; }
+  if (!layerCache[k]) {
+    const r = await fetch(new URL("/api/layers?kind=" + k, location.origin));
+    layerCache[k] = r.ok ? await r.json() : {};
+  }
+  G && G.setLayer(layerCache[k]);
+});
+const showFlat = show, hideFlat = hideDetail;
+show = (i, instant) => { showFlat(i, instant); if (G && mode === "globe") G.focusLink(i); };
+hideDetail = () => { hideFlat(); if (G) G.clearFocus(); };
+if (DATA.trade) { document.getElementById("tradeiso").value = DATA.trade; mode = "trade"; }
+else { try { document.getElementById("tradeiso").value = "UZB"; } catch (e) {} }
+setMode(mode);
+
+document.getElementById("collapse").onclick = () => document.getElementById("panel").classList.toggle("collapsed");
+document.getElementById("mapform").onsubmit = () => { document.getElementById("gen").disabled = true; document.getElementById("genwait").hidden = false; };
+</script>
+{% endblock %}

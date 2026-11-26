@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+{% block title %}{% if detail %}{{ detail.name }} · {% endif %}Xavf indeksi · WorldScope Lite{% endblock %}
+{% block mainclass %}wide{% endblock %}
+{% block head %}
+<script src="/static/world/topojson-client.min.js"></script>
+<script src="/static/vendor/d3-array.min.js"></script>
+<script src="/static/vendor/d3-geo.min.js"></script>
+<script src="/static/globe.js"></script>
+{% endblock %}
+{% macro pill(r) %}<span class="score" style="background:{{ r.color }}">{{ r.score if r.score is not none else '—' }}</span>{% endmacro %}
+{% block body %}
+<h2>Davlat xavf indeksi <span class="muted small">{{ scored }} ta davlat baholandi · 0 = past xavf, 100 = juda yuqori</span></h2>
+{% if error %}<p class="warn">{{ error }}</p>{% endif %}
+<div class="legendrow">{% set lo = namespace(v=0) %}{% for top, label, color in BANDS %}<span style="--c:{{ color }}">{{ lo.v }}–{{ [top, 100]|min }} {{ label }}</span>{% set lo.v = top %}{% endfor %}<span style="--c:#94a3b8">ma'lumot yetarli emas</span></div>
+
+<div class="riskwrap">
+  <div>
+    <div id="riskmap" class="globewrap"><canvas class="globe" id="riskglobe" aria-label="Davlatlar xavf indeksi globusi"></canvas></div>
+    <p class="muted small">Globusni aylantiring, davlatni bosing — tarkibi o'ng tomonda chiqadi.</p>
+  </div>
+
+  <aside>
+    {% if detail %}
+    <div class="card">
+      <h3 style="margin-top:0">{{ detail.name }} {{ pill(detail) }} <button type="button" class="ghost small noprint" data-pdf="WorldScope - {{ detail.name }} xavf indeksi">📄 PDF</button></h3>
+      <p class="small">{% if detail.rank %}{{ detail.rank }}-o'rin ({{ scored }} tadan, 1 = eng xavfli) · {% endif %}{{ detail.band }} ·
+        {{ detail.coverage }}/{{ detail.of }} tarkibiy qism bo'yicha ma'lumot bor</p>
+      <div class="dials">{% for c in detail.components %}
+        <div class="dial"><svg viewBox="0 0 80 50" width="86" aria-hidden="true">
+          <path d="M8 40 A32 32 0 0 1 24 12.3" stroke="#16a34a" stroke-width="6" fill="none"/><path d="M24 12.3 A32 32 0 0 1 56 12.3" stroke="#eab308" stroke-width="6" fill="none"/>
+          <path d="M56 12.3 A32 32 0 0 1 72 40" stroke="#dc2626" stroke-width="6" fill="none"/>
+          {% if c.value is not none %}<g class="needle" style="transform: rotate({{ (c.value / 100 * 180 - 90)|round(1) }}deg)"><path d="M40 40 L40 13" stroke="var(--ink)" stroke-width="2.4" stroke-linecap="round"/></g>{% endif %}
+          <circle cx="40" cy="40" r="4" fill="var(--gold)"/></svg>
+          <b style="color:var(--ink)">{{ c.value|round|int if c.value is not none else '—' }}</b><br>{{ c.label }}</div>
+      {% endfor %}</div>
+      {% for c in detail.components %}
+      <div style="margin:10px 0">
+        <div class="small" style="display:flex;justify-content:space-between"><b>{{ c.label }}</b>
+          <span class="muted">vazni {{ c.weight }}% · {{ c.value if c.value is not none else "ma'lumot yo'q" }}</span></div>
+        {% if c.value is not none %}<div class="meter"><i style="width:{{ c.value }}%;background:{{ 'var(--bad)' if c.value >= 60 else ('#eab308' if c.value >= 40 else 'var(--good)') }}"></i></div>{% endif %}
+        {% for p in c.parts %}
+        <div class="muted small">{{ p.label }}: <b>{{ p.raw }}{{ '' if p.unit.startswith('−') else ' ' + p.unit }}</b>{% if p.year %} ({{ p.year }}){% endif %} → {{ p.risk }} <span title="Qoida">[{{ p.rule }}]</span></div>
+        {% endfor %}
+      </div>
+      {% endfor %}
+      <p class="small"><a href="/debt?c={{ detail.iso }}">Qarz tahlili →</a> · <a href="/sanctions?c={{ detail.iso }}">Sanksiyalar →</a> · <a href="/pair?a=UZB&b={{ detail.iso }}">O'zbekiston bilan munosabat →</a></p>
+    </div>
+    {% else %}
+    <div class="card small">
+      <p><b>Bu indeks nima?</b> Har bir davlat uchun ochiq manbalardagi raqamlardan yig'ilgan 0–100 ball: qancha yuqori bo'lsa, shu davlat bilan
+        savdo, investitsiya yoki hamkorlikdagi xavf shuncha katta.</p>
+      <p><b>Tarkibi (vazni):</b></p>
+      <ul>{% for key, label, weight, inputs in COMPONENTS %}<li>{{ label }} — {{ weight }}%</li>{% endfor %}</ul>
+      <p>Har bir raqam qat'iy chiziqli qoida bilan 0–100 ga o'giriladi (qoidalar davlat sahifasida raqam yonida yozilgan).
+        Ma'lumoti yo'q qism hisobga olinmaydi, qolganlari vazniga ko'ra o'rtachalanadi; 3 tadan kam qism bo'lsa ball berilmaydi.</p>
+      <p class="muted">Manbalar: Jahon banki (WDI, WGI{% if meta.years %}, {{ meta.years }}{% endif %}),
+        {% if meta.sanctions %}OFAC, BMT, YeI va Buyuk Britaniya sanksiya ro'yxatlari{% else %}sanksiya ro'yxatlari hali yuklanmagan{% endif %},
+        WorldScope yangiliklari. Bu kredit reytingi yoki bashorat emas — davlatlarni solishtirish uchun boshlang'ich ko'rsatkich.</p>
+    </div>
+    {% endif %}
+  </aside>
+</div>
+
+<div class="tabs" style="margin-top:14px">
+  <a href="/risk{{ '?c=' + detail.iso if detail }}" class="{{ 'on' if not tier }}">Barchasi</a>
+  {% for t, label in TIERS.items() %}<a href="/risk?tier={{ t }}{{ '&c=' + detail.iso if detail }}" class="{{ 'on' if tier == t }}">{{ label }}</a>{% endfor %}
+</div>
+<table class="facts small-t">
+  <thead><tr><th>#</th><th>Davlat</th><th>Ball</th>{% for key, label, weight, inputs in COMPONENTS %}<th title="vazni {{ weight }}%">{{ label }}</th>{% endfor %}</tr></thead>
+  <tbody>{% for r in rows %}
+    <tr class="{{ 'sel' if detail and detail.iso == r.iso }}"><td>{{ r.rank or '' }}</td><td><a href="/risk?c={{ r.iso }}{{ '&tier=' ~ tier if tier }}">{{ r.name }}</a></td><td>{{ pill(r) }}</td>
+      {% for c in r.components %}<td>{{ c.value|round|int if c.value is not none else '—' }}</td>{% endfor %}</tr>
+  {% endfor %}</tbody>
+</table>
+
+<script>
+const DATA = {{ payload }};
+const layer = {};
+for (const [iso, v] of Object.entries(DATA.scores)) if (v[0] !== null) layer[iso] = [v[0], v[1], `${v[0]} · ${v[3]}`];
+const names = Object.fromEntries(Object.entries(DATA.scores).map(([k, v]) => [k, v[2]]));
+const coords = {{ coords }};
+fetch(new URL("/static/world/countries-110m.json", location.origin)).then(r => r.json()).then(topo => {
+  const g = WSGlobe(document.getElementById("riskglobe"), {topo, geo: DATA.geo, coords, names, links: [], compact: true,
+    start: DATA.selected && coords[DATA.selected] ? coords[DATA.selected] : [30, 40], onCountry: iso => { location.href = "/risk?c=" + iso; }});
+  g.setLayer(layer);
+  if (DATA.selected) g.focusCountry(DATA.selected);
+});
+</script>
+{% endblock %}

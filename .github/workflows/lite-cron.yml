@@ -1,0 +1,42 @@
+name: Lite scheduled jobs
+
+# WorldScope Lite sleeps on Render's free plan, so its own timer stops with it. This workflow only
+# wakes it up and keeps it awake while it works: the app itself decides which jobs are due (news,
+# the morning digest, the daily AI map, sanctions lists, watch-list checks, forecast checks) and
+# remembers what it already did. No secret is needed. Scheduled workflows run from the default branch.
+on:
+  schedule:
+    - cron: "17 */3 * * *"   # every 3 hours
+    - cron: "5 2 * * *"      # 07:05 Tashkent, for the morning digest
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  wake:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Wake WorldScope Lite and wait for its jobs
+        env:
+          URL: ${{ vars.LITE_URL || 'https://worldscope-lite.onrender.com' }}
+          TOKEN: ${{ secrets.LITE_CRON_TOKEN }}
+        run: |
+          # a sleeping free service takes up to a minute or two to start
+          for i in $(seq 1 12); do
+            if curl -sf -m 20 "$URL/healthz" > /dev/null; then break; fi
+            echo "waiting for the service ($i)"; sleep 15
+          done
+          # with a token, ask for the due jobs at once; without one the app starts them itself
+          if [ -n "$TOKEN" ]; then
+            curl -sS -m 30 -X POST -H "x-cron-token: $TOKEN" "$URL/cron/jobs" || true
+          fi
+          # keep it awake (Render sleeps after 15 idle minutes) until the jobs are done, at most ~20 min
+          idle=0
+          for i in $(seq 1 20); do
+            sleep 60
+            state=$(curl -s -m 20 "$URL/healthz" || echo '{}')
+            echo "$(date -u +%H:%M) $state"
+            if echo "$state" | grep -q '"busy":false'; then idle=$((idle + 1)); else idle=0; fi
+            if [ "$idle" -ge 2 ]; then break; fi
+          done

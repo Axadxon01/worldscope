@@ -1,0 +1,146 @@
+{% extends "base.html" %}
+{% block title %}{% if iso %}{{ name(iso) }} · {% endif %}Sanksiyalar · WorldScope Lite{% endblock %}
+{% macro progs(list_) %}{% for p in list_ %}<span class="chip">{{ PROGRAMS.get(p, p) }}</span>{% endfor %}{% endmacro %}
+{% macro flags(isos) %}{% for c in isos %}<a href="/sanctions?c={{ c }}" class="chip c">{{ name(c) }}</a>{% endfor %}{% endmacro %}
+{% macro entry(r, show_score=False) %}
+  <tr>
+    <td><b>{{ r.name }}</b>{% if r.aliases %}<div class="muted small">boshqa nomlari: {{ r.aliases[:4]|join('; ') }}{% if r.aliases|length > 4 %} … (+{{ r.aliases|length - 4 }}){% endif %}</div>{% endif %}</td>
+    <td class="small">{{ KINDS.get(r.kind, r.kind) }}</td>
+    <td class="small"><span class="k">{{ r.list }}</span>{{ progs(r.programs) }}</td>
+    <td class="small">{{ flags(r.countries) }}</td>
+    <td class="small">{{ r.listed or '—' }}</td>
+    {% if show_score %}<td class="small"><span class="stamp {{ 'full' if r.score >= 0.95 else 'strong' if r.score >= 0.8 else 'part' }}">{{ match(r.score) }}</span> <span class="muted">({{ (r.score * 100)|round|int }}%)</span></td>{% endif %}
+  </tr>
+{% endmacro %}
+
+{% block body %}
+<form method="get" action="/sanctions" class="card debtpick">
+  <div class="pickrow">
+    <input name="q" value="{{ q }}" maxlength="120" placeholder="Shaxs yoki kompaniya nomi: masalan Sberbank, Ivanov…" style="flex:2">
+    <select name="c" title="Davlat">
+      <option value="">— barcha davlatlar —</option>
+      {% for t, label in TIERS.items() %}<optgroup label="{{ label }}">
+        {% for o in options if o.tier == t %}<option value="{{ o.iso }}" {{ 'selected' if o.iso == iso }}>{{ o.name }}</option>{% endfor %}
+      </optgroup>{% endfor %}
+    </select>
+    <select name="list" title="Ro'yxat">
+      <option value="">Barcha ro'yxatlar</option>
+      {% for k, v in LISTS.items() %}<option value="{{ k }}" {{ 'selected' if lst == k }}>{{ v.label }}</option>{% endfor %}
+    </select>
+    <button>Qidirish</button>
+  </div>
+  <p class="muted small">Rasmiy ro'yxatlar: AQSH OFAC, BMT Xavfsizlik Kengashi, Yevropa Ittifoqi, Buyuk Britaniya — jami
+    {{ "{:,}".format(totals.all).replace(",", " ") }} ta yozuv.
+    Lotin, kirill va inglizcha yozilishda qidirsa bo'ladi.</p>
+</form>
+{% if error %}<p class="warn">{{ error }}</p>{% endif %}
+
+<p class="warn small">⚖️ Nom mos kelishi — bu shaxs yoki kompaniya ro'yxatda ekanini anglatmaydi: bir xil ismli boshqa odam bo'lishi mumkin.
+  Tug'ilgan sana, manzil, hujjat raqami bilan rasmiy manbada tekshiring
+  ({% for k, v in LISTS.items() %}<a href="{{ v.official }}" target="_blank" rel="noopener">{{ k }}</a>{{ ', ' if not loop.last }}{% endfor %}).
+  Bu yuridik maslahat emas.</p>
+
+{% if not totals.all %}
+  <div class="card">
+    <p>Ro'yxatlar hali yuklanmagan{% if state.sanctions %} — <b>hozir yuklanmoqda</b> (1–3 daqiqa){% endif %}.</p>
+    <form method="post" action="/sanctions/refresh"><button {{ 'disabled' if state.sanctions }}>Ro'yxatlarni yuklash</button></form>
+  </div>
+{% endif %}
+
+{% if q %}
+<h2>“{{ q }}” bo'yicha natijalar <span class="muted small">{{ results|length }} ta{% if iso %} · {{ name(iso) }}{% endif %}</span></h2>
+{% if results %}
+<table class="facts">
+  <thead><tr><th>Nomi</th><th>Turi</th><th>Ro'yxat va dastur</th><th>Davlat</th><th>Kiritilgan</th><th>Moslik</th></tr></thead>
+  <tbody>{% for r in results %}{{ entry(r, True) }}{% endfor %}</tbody>
+</table>
+{% else %}<p class="muted">Hech narsa topilmadi. Bu “ro'yxatda yo'q” degani emas: nom boshqacha yozilgan bo'lishi mumkin.</p>{% endif %}
+
+{% elif country %}
+<section class="debt">
+  <h2>{{ name(iso) }} <span class="muted small">sanksiya ro'yxatlarida shu davlatga bog'langan yozuvlar</span></h2>
+  <div class="statgrid">
+    <div class="box"><b>{{ country.stat.total }}</b><span>jami yozuv</span></div>
+    {% for k in LISTS %}<div class="box"><b>{{ country.stat.lists.get(k, 0) }}</b><span>{{ LISTS[k].label }}</span></div>{% endfor %}
+  </div>
+  <p class="muted small">“Bog'langan” — yozuvdagi manzil, fuqarolik yoki kema bayrog'i shu davlat. Bu davlatning o'zi sanksiya ostida ekanini emas,
+    u yerda ro'yxatdagi shaxs va kompaniyalar qancha ekanini ko'rsatadi.</p>
+  {% if country.stat.programs %}
+  <h3>Asosiy dasturlar</h3>
+  <p>{% for p, n in country.stat.programs %}<span class="chip">{{ p.split(': ')[0] }} · {{ PROGRAMS.get(p.split(': ', 1)[1], p.split(': ', 1)[1]) }} — {{ n }}</span>{% endfor %}</p>
+  {% endif %}
+  {% if country.years %}
+  <h3>Yillar bo'yicha <span class="muted small">(BMT, YeI, Buyuk Britaniya sanasi; OFAC sana bermaydi)</span></h3>
+  {% set mx = country.years|map(attribute=1)|max %}
+  <div class="bars">{% for y, n in country.years %}<div class="bar" title="{{ y }}: {{ n }}"><i style="height:{{ (n / mx * 100)|round }}%"></i><span>{{ y[2:] }}</span><b>{{ n }}</b></div>{% endfor %}</div>
+  {% endif %}
+
+  {% if country.news %}
+  <h3>Sanksiyalar haqida so'nggi yangiliklar</h3>
+  <ul class="plain">{% for a in country.news %}<li><a href="{{ a.url }}" target="_blank" rel="noopener">{{ a.title }}</a> <span class="muted small">{{ a.publisher }} · {{ a.published|ago }}</span></li>{% endfor %}</ul>
+  {% endif %}
+
+  <h3>Yozuvlar <span class="muted small">{{ country.rows|length }}{% if country.rows|length >= 200 %}+ (birinchi 200){% endif %}</span></h3>
+  <p class="small">{% for k, v in KINDS.items() %}<a href="/sanctions?c={{ iso }}&kind={{ k }}{% if lst %}&list={{ lst }}{% endif %}" class="chip{{ ' c' if kind == k }}">{{ v }}</a>{% endfor %}
+    {% if kind %}<a href="/sanctions?c={{ iso }}" class="small">hammasi</a>{% endif %}</p>
+  {% if country.rows %}
+  <table class="facts">
+    <thead><tr><th>Nomi</th><th>Turi</th><th>Ro'yxat va dastur</th><th>Davlat</th><th>Kiritilgan</th></tr></thead>
+    <tbody>{% for r in country.rows %}{{ entry(r) }}{% endfor %}</tbody>
+  </table>
+  {% else %}<p class="muted">Bu davlatga bog'langan yozuv topilmadi.</p>{% endif %}
+</section>
+
+{% else %}
+{% if totals.all %}
+<section class="debt">
+  <h2>🇺🇿 O'zbekiston eksportyorlari uchun</h2>
+  <div class="card">
+    <p>Ro'yxatlarda O'zbekistonga bog'langan <b>{{ uz.total or 0 }}</b> ta yozuv bor
+      {% if uz.lists %}({% for k, n in uz.lists.items() %}{{ k }}: {{ n }}{{ ', ' if not loop.last }}{% endfor %}){% endif %}.
+      <a href="/sanctions?c=UZB">Hammasini ko'rish →</a></p>
+    <p class="small"><b>Ikkilamchi sanksiya nima?</b> AQSH, YeI va Buyuk Britaniya o'z ro'yxatlariga uchinchi davlatlardagi kompaniyalarni ham kiritadi —
+      ko'pincha sanksiya ostidagi davlatga (masalan Rossiya, Eron) ikki tomonlama foydalaniladigan tovar, ehtiyot qism, elektronika yetkazgani yoki
+      cheklovni chetlab o'tishga yordam bergani uchun. Bunday kompaniya bilan ishlagan bank va hamkorlar ham xavfga tushadi:
+      to'lov to'xtatiladi, hisob yopiladi, tovar chegarada ushlanadi.</p>
+    <p class="small"><b>Amaliy tekshiruv:</b> (1) xaridor, uning egasi va bankini shu yerda va rasmiy manbada qidiring;
+      (2) yakuniy foydalanuvchi va yakuniy manzilni yozma tasdiqlating; (3) tovar ikki tomonlama foydalaniladigan ro'yxatda bormi, aniqlang;
+      (4) shubha bo'lsa — yurist yoki bank komplayens bo'limi bilan maslahatlashing.</p>
+  </div>
+  {% if uz_rows %}
+  <details class="small"><summary>O'zbekistonga bog'langan yozuvlar ({{ uz_rows|length }})</summary>
+    <table class="facts">
+      <thead><tr><th>Nomi</th><th>Turi</th><th>Ro'yxat va dastur</th><th>Davlat</th><th>Kiritilgan</th></tr></thead>
+      <tbody>{% for r in uz_rows %}{{ entry(r) }}{% endfor %}</tbody>
+    </table>
+  </details>
+  {% endif %}
+  <h3>Asosiy savdo hamkorlarida ro'yxatdagi yozuvlar</h3>
+  <p class="muted small">Ko'p yozuv — o'sha davlatdagi hamkorni ayniqsa sinchiklab tekshirish kerak degani.</p>
+  <div class="creditors">{% for p, n in partners %}
+    <a class="cred" href="/sanctions?c={{ p }}"><span>{{ name(p) }}</span><b>{{ n }}</b></a>{% endfor %}</div>
+
+  <h3>Eng ko'p yozuv bog'langan davlatlar</h3>
+  <table class="facts small-t">
+    <thead><tr><th>#</th><th>Davlat</th><th>Jami</th>{% for k in LISTS %}<th>{{ k }}</th>{% endfor %}</tr></thead>
+    <tbody>{% for iso_, s in top %}
+      <tr><td>{{ loop.index }}</td><td><a href="/sanctions?c={{ iso_ }}">{{ name(iso_) }}</a></td><td><b>{{ s.total }}</b></td>
+        {% for k in LISTS %}<td>{{ s.lists.get(k, 0) }}</td>{% endfor %}</tr>
+    {% endfor %}</tbody>
+  </table>
+</section>
+{% endif %}
+{% endif %}
+
+<details class="small" style="margin-top:18px"><summary>Ro'yxatlar holati</summary>
+  <table class="facts small-t">
+    <thead><tr><th>Ro'yxat</th><th>Yozuvlar</th><th>Yangilangan</th><th></th></tr></thead>
+    <tbody>{% for k, v in LISTS.items() %}{% set s = status.get(k, {}) %}
+      <tr><td>{{ v.label }}</td><td>{{ totals.lists.get(k, 0) }}</td><td>{{ s.updated|ago if s.updated else '—' }}</td>
+        <td class="{{ 'bad' if s.error }}">{{ s.error or '' }}</td></tr>
+    {% endfor %}</tbody>
+  </table>
+  <p class="muted">Ro'yxatlar haftada bir marta avtomatik yangilanadi.</p>
+  <form method="post" action="/sanctions/refresh"><button class="ghost small" {{ 'disabled' if state.sanctions }}>{{ 'Yuklanmoqda…' if state.sanctions else 'Hozir yangilash' }}</button></form>
+</details>
+{% endblock %}

@@ -1,0 +1,19 @@
+# Render Blueprint for WorldScope Lite only (the full stack has its own render.yaml).
+# It manages the existing worldscope-lite web service and gives it the shared database's
+# connection string, so the password never has to be copied by hand.
+services:
+  - type: web
+    name: worldscope-lite
+    runtime: python
+    plan: free
+    region: frankfurt
+    branch: lite-version
+    buildCommand: cd lite && pip install -r requirements.txt
+    startCommand: cd lite && uvicorn app:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /healthz
+    autoDeploy: true
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: worldscope-db-ytvn
+          property: connectionString

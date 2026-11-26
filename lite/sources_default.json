@@ -1,0 +1,287 @@
+[
+  {
+    "kind": "rss",
+    "label": "Google News: Dunyo (bosh sahifa)",
+    "lang": "en",
+    "value": "https://news.google.com/rss/headlines/section/topic/WORLD?hl=en-US&gl=US&ceid=US:en"
+  },
+  {
+    "kind": "rss",
+    "label": "Google News: Мир",
+    "lang": "ru",
+    "value": "https://news.google.com/rss/headlines/section/topic/WORLD?hl=ru&gl=RU&ceid=RU:ru"
+  },
+  {
+    "kind": "gnews",
+    "label": "Google News: Uzbekistan",
+    "lang": "en",
+    "value": "Uzbekistan"
+  },
+  {
+    "kind": "gnews",
+    "label": "Google News: Узбекистан",
+    "lang": "ru",
+    "value": "Узбекистан"
+  },
+  {
+    "kind": "gnews",
+    "label": "Google News: Central Asia",
+    "lang": "en",
+    "value": "\"Central Asia\" OR Kazakhstan OR Kyrgyzstan OR Tajikistan OR Turkmenistan"
+  },
+  {
+    "kind": "gnews",
+    "label": "Google News: geopolitics",
+    "lang": "en",
+    "value": "geopolitics OR sanctions OR ceasefire OR summit"
+  },
+  {
+    "kind": "gdelt",
+    "label": "GDELT: Markaziy Osiyo",
+    "lang": "multi",
+    "value": "(Uzbekistan OR Kazakhstan OR Kyrgyzstan OR Tajikistan OR Turkmenistan)",
+    "enabled": false
+  },
+  {
+    "kind": "gdelt",
+    "label": "GDELT: mojarolar",
+    "lang": "en",
+    "value": "(airstrike OR ceasefire OR offensive OR shelling) sourcelang:english",
+    "enabled": false
+  },
+  {
+    "kind": "telegram",
+    "label": "Telegram: Kun.uz",
+    "lang": "uz",
+    "value": "kunuzofficial"
+  },
+  {
+    "kind": "telegram",
+    "label": "Telegram: Daryo",
+    "lang": "uz",
+    "value": "daryo"
+  },
+  {
+    "kind": "telegram",
+    "label": "Telegram: BBC Русская служба",
+    "lang": "ru",
+    "value": "bbcrussian"
+  },
+  {
+    "kind": "rss",
+    "label": "Ukrinform (EN)",
+    "lang": "en",
+    "value": "https://www.ukrinform.net/rss/block-lastnews"
+  },
+  {
+    "kind": "rss",
+    "label": "President of Russia: events",
+    "lang": "en",
+    "value": "http://en.kremlin.ru/events/all/feed"
+  },
+  {
+    "kind": "rss",
+    "label": "UK FCDO",
+    "lang": "en",
+    "value": "https://www.gov.uk/government/organisations/foreign-commonwealth-development-office.atom"
+  },
+  {
+    "kind": "rss",
+    "label": "CISA advisories",
+    "lang": "en",
+    "value": "https://www.cisa.gov/cybersecurity-advisories/all.xml",
+    "enabled": false
+  },
+  {
+    "kind": "rss",
+    "label": "US EIA: Today in Energy",
+    "lang": "en",
+    "value": "https://www.eia.gov/rss/todayinenergy.xml"
+  },
+  {
+    "kind": "rss",
+    "label": "Kun.uz",
+    "lang": "uz",
+    "value": "https://kun.uz/news/rss"
+  },
+  {
+    "kind": "rss",
+    "label": "Kun.uz (EN)",
+    "lang": "en",
+    "value": "https://kun.uz/en/news/rss"
+  },
+  {
+    "kind": "rss",
+    "label": "Gazeta.uz",
+    "lang": "uz",
+    "value": "https://www.gazeta.uz/oz/rss/"
+  },
+  {
+    "kind": "rss",
+    "label": "UzA",
+    "lang": "uz",
+    "value": "https://uza.uz/rss"
+  },
+  {
+    "kind": "rss",
+    "label": "Daryo",
+    "lang": "uz",
+    "value": "https://daryo.uz/feed/"
+  },
+  {
+    "kind": "rss",
+    "label": "Spot.uz",
+    "lang": "ru",
+    "value": "https://www.spot.uz/ru/rss/"
+  },
+  {
+    "kind": "rss",
+    "label": "Podrobno.uz",
+    "lang": "ru",
+    "value": "https://podrobno.uz/rss/"
+  },
+  {
+    "kind": "rss",
+    "label": "UzDaily (EN)",
+    "lang": "en",
+    "value": "https://www.uzdaily.uz/en/rss"
+  },
+  {
+    "kind": "rss",
+    "value": "https://www.aljazeera.com/xml/rss/all.xml",
+    "label": "Al Jazeera",
+    "lang": "en"
+  },
+  {
+    "kind": "rss",
+    "value": "https://www.arabnews.com/rss.xml",
+    "label": "Arab News",
+    "lang": "en"
+  },
+  {
+    "kind": "rss",
+    "value": "https://tass.com/rss/v2.xml",
+    "label": "TASS",
+    "lang": "en"
+  },
+  {
+    "kind": "rss",
+    "value": "https://ria.ru/export/rss2/archive/index.xml",
+    "label": "РИА Новости",
+    "lang": "ru"
+  },
+  {
+    "kind": "rss",
+    "value": "https://lenta.ru/rss/news/world",
+    "label": "Lenta.ru",
+    "lang": "ru"
+  },
+  {
+    "kind": "rss",
+    "value": "https://www.globaltimes.cn/rss/outbrain.xml",
+    "label": "Global Times",
+    "lang": "en"
+  },
+  {
+    "kind": "rss",
+    "value": "https://english.news.cn/rss/worldrss.xml",
+    "label": "Xinhua",
+    "lang": "en"
+  },
+  {
+    "kind": "rss",
+    "value": "https://www.cgtn.com/subscribe/rss/section/world.xml",
+    "label": "CGTN",
+    "lang": "en"
+  },
+  {
+    "kind": "rss",
+    "value": "https://www.thehindu.com/news/international/feeder/default.rss",
+    "label": "The Hindu",
+    "lang": "en"
+  },
+  {
+    "kind": "rss",
+    "value": "https://timesofindia.indiatimes.com/rssfeeds/296589292.cms",
+    "label": "Times of India",
+    "lang": "en"
+  },
+  {
+    "kind": "rss",
+    "value": "https://www.dailysabah.com/rss/world",
+    "label": "Daily Sabah",
+    "lang": "en"
+  },
+  {
+    "kind": "rss",
+    "value": "https://www.aa.com.tr/en/rss/default?cat=world",
+    "label": "Anadolu Agency",
+    "lang": "en"
+  },
+  {
+    "kind": "rss",
+    "value": "https://feeds.bbci.co.uk/news/world/rss.xml",
+    "label": "BBC News",
+    "lang": "en"
+  },
+  {
+    "kind": "rss",
+    "value": "https://rss.dw.com/rdf/rss-en-world",
+    "label": "DW",
+    "lang": "en"
+  },
+  {
+    "kind": "rss",
+    "value": "https://www.france24.com/en/rss",
+    "label": "France 24",
+    "lang": "en"
+  },
+  {
+    "kind": "rss",
+    "value": "https://meduza.io/rss/en/all",
+    "label": "Meduza",
+    "lang": "en"
+  },
+  {
+    "kind": "rss",
+    "value": "https://akipress.com/rss/news_en.rss",
+    "label": "AKIpress",
+    "lang": "en"
+  },
+  {
+    "kind": "rss",
+    "value": "https://24.kg/rss/",
+    "label": "24.kg",
+    "lang": "ru"
+  },
+  {
+    "kind": "rss",
+    "value": "https://asiaplustj.info/en/rss",
+    "label": "Asia-Plus",
+    "lang": "en"
+  },
+  {
+    "kind": "rss",
+    "value": "https://www.trend.az/feeds/index.rss",
+    "label": "Trend",
+    "lang": "en"
+  },
+  {
+    "kind": "gnews",
+    "value": "site:presstv.ir OR site:tehrantimes.com OR site:irna.ir OR site:tasnimnews.com",
+    "label": "Google News: Eron OAV",
+    "lang": "en"
+  },
+  {
+    "kind": "gnews",
+    "value": "site:rt.com",
+    "label": "Google News: RT",
+    "lang": "en"
+  },
+  {
+    "kind": "gnews",
+    "value": "site:rferl.org OR site:ozodlik.org OR site:currenttime.tv",
+    "label": "Google News: RFE/RL",
+    "lang": "en"
+  }
+]

@@ -1,0 +1,138 @@
+{% extends "base.html" %}
+{% block title %}{% if iso %}{{ name(iso) }} qarzlari · {% endif %}Qarzlar · WorldScope Lite{% endblock %}
+{% macro ev(list) %}{% for n in list %}<a class="cite" href="#s{{ n }}">{{ n }}</a>{% endfor %}{% endmacro %}
+{% macro line(points) %}{% if points %}<svg class="spark" viewBox="0 0 120 28" width="120" height="28" aria-hidden="true"><polyline points="{{ points }}"/></svg>{% endif %}{% endmacro %}
+
+{% block body %}
+<form method="get" action="/debt" class="card debtpick" id="pick">
+  <div class="pickrow">
+    <select name="c" id="sel-c" onchange="this.form.submit()" required>
+      <option value="">— davlatni tanlang —</option>
+      {% for t, label in TIERS.items() %}
+      <optgroup label="{{ label }}">
+        {% for o in options if o.tier == t %}<option value="{{ o.iso }}" {{ 'selected' if o.iso == iso }}>{{ o.name }}{% if o.name != o.en %} ({{ o.en }}){% endif %}</option>{% endfor %}
+      </optgroup>
+      {% endfor %}
+    </select>
+    <input type="hidden" name="lang" value="{{ lang }}">
+  </div>
+  <p class="muted small">Davlatning tashqi qarzi, kimdan qarz olgani (davlatlar va xalqaro moliya tashkilotlari), Jahon banki kreditlari
+    va qarzdan keyin mamlakat ichida nima o'zgargani: davlat xaridlari, korrupsiya va jinoyat, qurilish, investitsiya, ijtimoiy yordam, ta'lim, tibbiyot.</p>
+</form>
+{% if error %}<p class="warn">{{ error }}</p>{% endif %}
+
+{% if iso and f %}
+<section class="debt">
+  <h2>{{ name(iso) }} <button type="button" class="ghost small noprint" data-pdf="WorldScope - {{ name(iso) }} qarzlari">📄 PDF</button></h2>
+
+  {% if f.debt_rows %}
+  <h3>Qarz dinamikasi</h3>
+  <table class="facts">
+    <thead><tr><th></th><th>Avval</th><th>Hozir</th><th>Trend</th></tr></thead>
+    <tbody>{% for r in f.debt_rows %}
+      <tr><td>{{ r.label }}</td><td>{{ r.then }} <span class="yr">{{ r.then_year }}</span></td><td><b>{{ r.now }}</b> <span class="yr">{{ r.year }}</span></td><td>{{ line(r.spark) }}</td></tr>
+    {% endfor %}</tbody>
+  </table>
+  {% endif %}
+
+  <h3>Kimga qarzdor{% if f.creditors.year %} <span class="muted small">(davlat qarzi, {{ f.creditors.year }})</span>{% endif %}</h3>
+  {% if f.creditors.rows %}
+  <div class="creditors">{% for r in f.creditors.rows[:15] %}
+    <div class="cr k-{{ r.kind }}">
+      <div class="crh">
+        <span>{% if r.iso %}<a href="/pair?a={{ iso }}&b={{ r.iso }}">{{ r.label }}</a>{% else %}{{ r.label }}{% endif %}
+          <span class="kind">{{ {'country': 'davlat', 'institution': 'xalqaro tashkilot', 'bonds': 'obligatsiyalar'}[r.kind] }}</span></span>
+        <b>{{ r.amount }}</b>
+      </div>
+      <div class="bar"><i style="width: {{ '%.1f'|format(r.share) }}%"></i></div>
+    </div>
+  {% endfor %}</div>
+  <p class="muted small">Davlat nomini bossangiz, ikki davlat munosabati tahlili ochiladi.</p>
+  {% else %}
+  <p class="muted">Jahon bankining qarz statistikasi (IDS) faqat past va o'rta daromadli davlatlarni qamraydi; {{ name(iso) }} bo'yicha kreditorlar taqsimoti yo'q.</p>
+  {% endif %}
+
+  {% if f.projects %}
+  <h3>Jahon banki kreditlari va loyihalari</h3>
+  <table class="facts small-t">
+    <thead><tr><th>Sana</th><th>Loyiha</th><th>Soha</th><th>Summa</th><th>Holat</th></tr></thead>
+    <tbody>{% for p in f.projects[:12] %}
+      <tr><td class="yr">{{ p.date }}</td><td><a href="{{ p.url }}" target="_blank" rel="noopener noreferrer">{{ p.name }}</a></td><td>{{ p.sector }}</td><td>{{ p.amount_h }}</td><td>{{ p.status }}</td></tr>
+    {% endfor %}</tbody>
+  </table>
+  {% endif %}
+
+  {% if f.outcome_rows %}
+  <h3>Mamlakat ichida nima o'zgardi (raqamlar)</h3>
+  <table class="facts">
+    <thead><tr><th>Soha</th><th>Ko'rsatkich</th><th>Avval</th><th>Hozir</th><th></th><th>Trend</th></tr></thead>
+    <tbody>{% for r in f.outcome_rows %}
+      <tr><td class="muted">{{ r.area_label }}</td><td>{{ r.label }}</td><td>{{ r.then }} <span class="yr">{{ r.then_year }}</span></td>
+        <td><b>{{ r.now }}</b> <span class="yr">{{ r.year }}</span></td>
+        <td class="{{ 'good' if r.better else 'bad' if r.better == false else 'muted' }}">{{ '▲ yaxshilangan' if r.better else '▼ yomonlashgan' if r.better == false else '—' }}</td>
+        <td>{{ line(r.spark) }}</td></tr>
+    {% endfor %}</tbody>
+  </table>
+  <p class="muted small">Manba: Jahon banki (WDI, Worldwide Governance Indicators). Ko'rsatkichlarning o'zgarishi qarzning o'zidan bo'lishi shart emas: AI tahlili buni alohida baholaydi.</p>
+  {% endif %}
+
+  <form method="post" action="/debt" class="card" id="aiform" style="margin-top:18px">
+    <input type="hidden" name="c" value="{{ iso }}">
+    <div class="pickrow">
+      <select name="lang"><option value="uz" {{ 'selected' if lang=='uz' }}>O'zbekcha</option><option value="ru" {{ 'selected' if lang=='ru' }}>Русский</option><option value="en" {{ 'selected' if lang=='en' }}>English</option></select>
+      <button id="go" {{ 'disabled' if not ai }}>{{ 'AI tahlilni yangilash' if r else 'AI tahlil: qarzdan keyin nima o\'zgardi' }}</button>
+    </div>
+    <p class="muted small" id="wait" hidden>Yangiliklar qidirilmoqda va AI tahlil yozmoqda: 30–90 soniya…</p>
+    {% if not ai %}<p class="warn">AI o'chiq: serverda GEMINI_API_KEY yoki ANTHROPIC_API_KEY kerak.</p>{% endif %}
+  </form>
+
+  {% if r %}
+  <article class="debtai">
+    <h3>AI tahlili <span class="sus s-{{ r.sustainability.level }}">qarz xavfi: {{ {'low':'past','moderate':'o\'rtacha','high':'yuqori','critical':'juda yuqori'}[r.sustainability.level] }}</span></h3>
+    <p class="psum">{{ r.summary }}</p>
+    {% if r.sustainability.note %}<p class="asym">{{ r.sustainability.note }}</p>{% endif %}
+
+    <h3>Qarzdan keyin sohalar bo'yicha</h3>
+    <div class="areas">{% for e in r.effects %}
+      <div class="area s-{{ {'improved':'positive','worsened':'negative','mixed':'mixed','unclear':'none'}[e.state] }}">
+        <b>{{ AREAS[e.area] }}</b><span class="st">{{ {'improved':'yaxshilangan','worsened':'yomonlashgan','mixed':'aralash','unclear':'aniq emas'}[e.state] }}</span>
+        <p>{{ e.finding or "Ma'lumot topilmadi." }} {{ ev(e.evidence) }}</p>
+      </div>
+    {% endfor %}</div>
+
+    <div class="gb small2">
+      {% if r.uses %}<div class="col"><h3>Qarz pullari nimaga ketdi</h3><ul>{% for u in r.uses %}<li><b>{{ u.lender }}</b> {{ u.what }} {{ ev(u.evidence) }}</li>{% endfor %}</ul></div>{% endif %}
+      {% if r.creditors %}<div class="col"><h3>Kreditorlar nimani ko'zlaydi</h3><ul>{% for c in r.creditors %}<li><b>{{ c.name }}</b> {{ c.logic }}</li>{% endfor %}</ul></div>{% endif %}
+    </div>
+
+    {% if r.red_flags %}
+    <div class="flags"><h3>⚠ Xabar qilingan muammolar</h3>
+      <ul>{% for fl in r.red_flags %}<li>{{ fl.text }} {{ ev(fl.evidence) }}</li>{% endfor %}</ul>
+      <p class="muted small">Bular manbalarda xabar qilingan ma'lumotlar; sud qarori bo'lmasa, ayblov isbotlangan deb hisoblanmaydi.</p>
+    </div>
+    {% endif %}
+
+    {% if r.watch %}<h3>Nimani kuzatish kerak</h3><ul>{% for w in r.watch %}<li>{{ w }}</li>{% endfor %}</ul>{% endif %}
+
+    {% if r.sources %}<h3>Manbalar</h3><ol class="cites">{% for s in r.sources %}
+      <li id="s{{ s.n }}" value="{{ s.n }}"><a href="{{ s.url }}" target="_blank" rel="noopener noreferrer">{{ s.title }}</a> <span class="muted">— {{ s.publisher }}, {{ s.published }}</span></li>
+    {% endfor %}</ol>{% endif %}
+    <p class="muted small">{{ r.data_note }} {{ r.news_count }} ta yangilik ko'rib chiqildi. Qarz va ko'rsatkichlar birga o'zgarishi ular orasida sabab-oqibat borligini isbotlamaydi.
+      {{ r.created[:16].replace('T',' ') }} UTC · {{ r.model }}</p>
+  </article>
+  {% endif %}
+</section>
+{% elif not iso %}
+<div class="empty"><h2>Davlatni tanlang</h2><p>Masalan: O'zbekiston, Pokiston, Shri-Lanka, Keniya yoki Argentina.</p></div>
+{% endif %}
+
+{% if recent %}
+<div class="recent small"><b>Oxirgi tahlillar:</b>
+  {% for p in recent %}<a href="/debt?c={{ p.iso }}&lang={{ p.lang }}">{{ name(p.iso) }}</a>{% if not loop.last %} · {% endif %}{% endfor %}
+</div>
+{% endif %}
+<script>
+const f = document.getElementById("aiform");
+if (f) f.onsubmit = () => { document.getElementById("go").disabled = true; document.getElementById("wait").hidden = false; };
+</script>
+{% endblock %}

@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block title %}Kuzatuv ro'yxati · WorldScope Lite{% endblock %}
+{% block body %}
+<h2>Kuzatuv ro'yxati</h2>
+{% if msg %}<p class="ok">{{ msg }}</p>{% endif %}
+{% if error %}<p class="warn">{{ error }}</p>{% endif %}
+<p class="muted small">Davlatlar va kompaniyalarni kuzating. Kompaniya yoki shaxs sanksiya ro'yxatiga tushsa (har hafta tekshiriladi) yoki davlatning
+  xavf indeksi 5 balldan ko'p o'zgarsa (har kuni), ogohlantirish shu yerda paydo bo'ladi{% if linked %} va Telegram'ga keladi{% elif signed %} — Telegram'ga ham kelishi uchun
+  <a href="/account">Profil</a>da botni bog'lang{% endif %}.</p>
+
+<div class="grid2">
+  <form method="post" action="/watch/add" class="card stack">
+    <h3>🏳️ Davlat qo'shish</h3>
+    <input type="hidden" name="kind" value="country">
+    <select name="value" required>
+      <option value="">— davlatni tanlang —</option>
+      {% for t, label in TIERS.items() %}<optgroup label="{{ label }}">{% for o in options if o.tier == t %}<option value="{{ o.iso }}">{{ o.name }}</option>{% endfor %}</optgroup>{% endfor %}
+    </select>
+    <button>Kuzatish</button>
+  </form>
+  <form method="post" action="/watch/add" class="card stack">
+    <h3>🏢 Kompaniya yoki shaxs qo'shish</h3>
+    <input type="hidden" name="kind" value="company">
+    <input name="value" required minlength="3" maxlength="120" placeholder="Hamkor kompaniya, uning egasi yoki banki">
+    <button>Kuzatish</button>
+    {% if not lists %}<p class="muted small">Sanksiya ro'yxatlari hali yuklanmagan; yuklangach tekshiriladi.</p>{% endif %}
+  </form>
+</div>
+
+{% set countries = items|selectattr("kind", "equalto", "country")|list %}
+{% set companies = items|selectattr("kind", "equalto", "company")|list %}
+{% if countries %}
+<h3>Davlatlar</h3>
+<table class="facts">
+  <thead><tr><th>Davlat</th><th>Xavf indeksi</th><th>Oxirgi tekshiruvdan beri</th><th>Sanksiya yozuvlari</th><th></th></tr></thead>
+  <tbody>{% for it in countries %}
+    <tr><td><a href="/country/{{ it.value }}"><b>{{ it.name }}</b></a></td>
+      <td>{% if it.score is not none %}<span class="score" style="background:{{ it.color }}">{{ it.score }}</span> <span class="small muted">{{ it.band }}</span>{% else %}—{% endif %}</td>
+      <td class="small">{% if it.since is not none and it.score is not none %}{% set d = (it.score - it.since)|round(1) %}{{ "▲" if d > 0 else "▼" if d < 0 else "=" }} {{ d }}{% else %}hali tekshirilmagan{% endif %}</td>
+      <td><a href="/sanctions?c={{ it.value }}">{{ it.sanctions }}</a></td>
+      <td><form method="post" action="/watch/{{ it.id }}/delete"><button class="ghost small danger" title="Olib tashlash">✕</button></form></td></tr>
+  {% endfor %}</tbody>
+</table>
+{% endif %}
+
+{% if companies %}
+<h3>Kompaniya va shaxslar</h3>
+<table class="facts">
+  <thead><tr><th>Nom</th><th>Sanksiya ro'yxatlarida</th><th>Tekshirilgan</th><th></th></tr></thead>
+  <tbody>{% for it in companies %}
+    <tr><td><b>{{ it.value }}</b></td>
+      <td>{% if it.matches %}{% for m in it.matches[:4] %}<div class="small"><span class="stamp {{ 'full' if m.score >= 0.95 else 'strong' }}">{{ match(m.score) }}</span>
+          {{ m.name }} — {{ m.list }}</div>{% endfor %}{% if it.matches|length > 4 %}<a class="small" href="/sanctions?q={{ it.value|urlencode }}">yana {{ it.matches|length - 4 }} ta →</a>{% endif %}
+        {% else %}<span class="ok-text">✓ moslik topilmadi</span>{% endif %}</td>
+      <td class="small">{{ it.state.checked|ago if it.state.checked else "—" }}</td>
+      <td><form method="post" action="/watch/{{ it.id }}/delete"><button class="ghost small danger" title="Olib tashlash">✕</button></form></td></tr>
+  {% endfor %}</tbody>
+</table>
+<p class="muted small">Nom mosligi — o'sha shaxs yoki kompaniya ekanini anglatmaydi. Rasmiy manbada tekshiring. Bu yuridik maslahat emas.</p>
+{% endif %}
+
+{% if not items %}<p class="muted">Ro'yxat hali bo'sh.</p>{% endif %}
+
+<h3>Ogohlantirishlar</h3>
+{% if alerts %}
+<ul class="alerts">{% for a in alerts %}<li><span class="muted small">{{ a.created|ago }}</span><pre>{{ a.text }}</pre></li>{% endfor %}</ul>
+{% else %}<p class="muted small">Hali ogohlantirish yo'q.</p>{% endif %}
+{% endblock %}
