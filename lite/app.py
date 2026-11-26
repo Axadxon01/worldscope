@@ -15,7 +15,7 @@ import secrets
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from urllib.parse import quote_plus
+from urllib.parse import quote_plus, urlsplit
 
 import markdown as md
 from fastapi import FastAPI, Form, Request
@@ -38,7 +38,9 @@ KINDS = {"rss": "RSS", "gnews": "Google News", "telegram": "Telegram", "gdelt": 
 log = logging.getLogger("worldscope")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
-state = {"running": False, "last_run": None, "last_added": 0}
+state = {"running": False, "last_run": None, "last_added": 0, "ai_job": ""}
+AI_DAILY_LIMIT = int(os.environ.get("WS_AI_DAILY_LIMIT", "60"))
+_ai_lock = asyncio.Lock()
 _background: set[asyncio.Task] = set()
 
 
@@ -64,10 +66,10 @@ def _save(results) -> int:
                     continue
                 cats, countries = analyze.tag(it["title"], it["summary"])
                 cur = c.execute(
-                    """INSERT OR IGNORE INTO articles
+                    """INSERT INTO articles
                        (url, title, summary, publisher, published, fetched, source_id, kind, lang,
                         categories, countries, title_key)
-                       VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+                       VALUES (?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT DO NOTHING""",
                     (
                         it["url"],
                         it["title"],
@@ -134,6 +136,32 @@ templates = Jinja2Templates(directory=HERE / "templates")
 # ------------------------------------------------------------------ access
 
 
+SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
+CSP = (
+    "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; "
+    "script-src 'self' 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'; "
+    "base-uri 'self'; form-action 'self'"
+)
+
+
+def _same_site(request: Request) -> bool:
+    """True when a state-changing request comes from a page of this site.
+
+    The browser remembers the password and sends it with any request to this site, including one
+    started by another site (cross-site request forgery). Browsers tell us where a request came
+    from: Sec-Fetch-Site, and the Origin or Referer header. Anything else is refused.
+    """
+    site = request.headers.get("sec-fetch-site")
+    if site:
+        return site in ("same-origin", "none")
+    host = request.headers.get("host", "")
+    for header in ("origin", "referer"):
+        value = request.headers.get(header)
+        if value and value != "null":
+            return urlsplit(value).netloc == host
+    return False
+
+
 @app.middleware("http")
 async def password_gate(request: Request, call_next):
     if PASSWORD and request.url.path != "/healthz":
@@ -147,10 +175,54 @@ async def password_gate(request: Request, call_next):
                 ok = False
         if not ok:
             return Response("Parol kerak", 401, {"WWW-Authenticate": 'Basic realm="WorldScope"'})
+    if request.method not in SAFE_METHODS and not _same_site(request):
+        return Response("So'rov boshqa saytdan keldi va rad etildi.", 403)
     response = await call_next(request)
     response.headers["X-Frame-Options"] = "DENY"
-    response.headers["Referrer-Policy"] = "no-referrer"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    # same-origin, not no-referrer: with no-referrer browsers send "Origin: null" on our own forms.
+    response.headers["Referrer-Policy"] = "same-origin"
+    response.headers["Content-Security-Policy"] = CSP
     return response
+
+
+# ------------------------------------------------------------------ AI budget
+
+
+def busy_message() -> str:
+    return f"Hozir boshqa AI ish bajarilmoqda ({state['ai_job']}). Bir daqiqadan keyin urinib ko'ring."
+
+
+def ai_used_today() -> int:
+    row = db.one("SELECT calls FROM ai_usage WHERE day = ?", (collectors.now_iso()[:10],))
+    return row["calls"] if row else 0
+
+
+async def run_ai(label: str, fn, *args):
+    """Run one AI job at a time, within the daily budget.
+
+    Free AI quotas are small: a double click, two tabs or two visitors must not spend them twice.
+    Raises AIError with a message for the page when the job cannot run now.
+    """
+    if _ai_lock.locked():
+        raise analyze.AIError(
+            f"Hozir boshqa AI ish bajarilmoqda ({state['ai_job']}). Bir daqiqadan keyin urinib ko'ring."
+        )
+    async with _ai_lock:
+        used = await asyncio.to_thread(ai_used_today)
+        if used >= AI_DAILY_LIMIT:
+            raise analyze.AIError(f"Bugungi AI limiti tugadi ({AI_DAILY_LIMIT} ta). Ertaga yana ishlaydi.")
+        with db.tx() as c:
+            c.execute(
+                "INSERT INTO ai_usage (day, calls) VALUES (?, 1) "
+                "ON CONFLICT (day) DO UPDATE SET calls = ai_usage.calls + 1",
+                (collectors.now_iso()[:10],),
+            )
+        state["ai_job"] = label
+        try:
+            return await asyncio.to_thread(fn, *args)
+        finally:
+            state["ai_job"] = ""
 
 
 # ------------------------------------------------------------------ helpers
@@ -204,6 +276,9 @@ templates.env.globals.update(
     CATS={k: v[0] for k, v in analyze.CATEGORIES.items()} | {"central-asia": "Markaziy Osiyo"},
     COUNTRIES={k: v["name"] for k, v in analyze.COUNTRY_INFO.items()},
     state=state,
+    ai_used_today=ai_used_today,
+    ai_limit=lambda: AI_DAILY_LIMIT,
+    db_where=db.describe,
 )
 
 
@@ -276,7 +351,9 @@ async def do_refresh(request: Request):
     task = asyncio.create_task(refresh())
     _background.add(task)  # keep a reference so the task is not garbage-collected mid-run
     task.add_done_callback(_background.discard)
-    return RedirectResponse(request.headers.get("referer") or "/", 303)
+    back = urlsplit(request.headers.get("referer") or "/")
+    target = back.path if back.netloc in ("", request.headers.get("host", "")) and back.path.startswith("/") else "/"
+    return RedirectResponse(target + (f"?{back.query}" if back.query and target != "/" else ""), 303)
 
 
 @app.get("/brief", response_class=HTMLResponse)
@@ -312,7 +389,8 @@ async def make_brief(lang: str = Form("uz"), hours: str = Form("24"), focus: str
     if focus and len(arts) < 5:  # a single-word focus that matched too little: let the model filter
         arts = _articles(h)
     try:
-        result = await asyncio.to_thread(analyze.write_brief, arts, lang if lang in analyze.LANG_NAMES else "uz", focus)
+        lang = lang if lang in analyze.LANG_NAMES else "uz"
+        result = await run_ai("AI tahlil", analyze.write_brief, arts, lang, focus)
     except (ValueError, analyze.AIError) as e:
         log.warning("brief failed: %s", e)
         return RedirectResponse("/brief?error=" + quote_plus(str(e)), 303)
@@ -322,10 +400,10 @@ async def make_brief(lang: str = Form("uz"), hours: str = Form("24"), focus: str
         return RedirectResponse("/brief?error=" + quote_plus(msg), 303)
     with db.tx() as c:
         cur = c.execute(
-            "INSERT INTO briefs (created, lang, hours, focus, model, body, cites) VALUES (?,?,?,?,?,?,?)",
+            "INSERT INTO briefs (created, lang, hours, focus, model, body, cites) VALUES (?,?,?,?,?,?,?) RETURNING id",
             (collectors.now_iso(), lang, h, focus, result["model"], result["body"], analyze.dumps(result["cites"])),
         )
-        new_id = cur.lastrowid
+        new_id = cur.fetchone()["id"]
     return RedirectResponse(f"/brief?id={new_id}", 303)
 
 
@@ -374,7 +452,7 @@ async def make_map(lang: str = Form("uz"), hours: str = Form("48"), focus: str =
         return RedirectResponse("/map?error=" + quote_plus("AI kaliti o'rnatilmagan"), 303)
     lang = lang if lang in analyze.LANG_NAMES else "uz"
     try:
-        result = await asyncio.to_thread(analyze.write_links, _articles(h), lang, focus)
+        result = await run_ai("xarita", analyze.write_links, _articles(h), lang, focus)
     except (ValueError, analyze.AIError) as e:
         log.warning("map failed: %s", e)
         return RedirectResponse("/map?error=" + quote_plus(str(e)), 303)
@@ -384,10 +462,10 @@ async def make_map(lang: str = Form("uz"), hours: str = Form("48"), focus: str =
     data = {"summary": result["summary"], "links": result["links"]}
     with db.tx() as c:
         cur = c.execute(
-            "INSERT INTO maps (created, lang, hours, focus, model, data) VALUES (?,?,?,?,?,?)",
+            "INSERT INTO maps (created, lang, hours, focus, model, data) VALUES (?,?,?,?,?,?) RETURNING id",
             (collectors.now_iso(), lang, h, focus, result["model"], analyze.dumps(data)),
         )
-        new_id = cur.lastrowid
+        new_id = cur.fetchone()["id"]
     return RedirectResponse(f"/map?id={new_id}", 303)
 
 
@@ -447,10 +525,14 @@ async def make_pair(a: str = Form(...), b: str = Form(...), lang: str = Form("uz
         return RedirectResponse(back + "&error=" + quote_plus("Ikki xil davlatni tanlang"), 303)
     if not analyze.ai_available():
         return RedirectResponse(back + "&error=" + quote_plus("AI kaliti o'rnatilmagan"), 303)
+    if _ai_lock.locked():  # say so before spending time on the news search
+        return RedirectResponse(back + "&error=" + quote_plus(busy_message()), 303)
     fetched = await pairs.pair_news(a, b)
     items = pairs.merge_news(_pair_db_news(a, b), fetched)
     try:
-        result = await asyncio.to_thread(pairs.write_pair, a, b, lang, items)
+        result = await run_ai(
+            f"{analyze.display_name(a)} ↔ {analyze.display_name(b)}", pairs.write_pair, a, b, lang, items
+        )
     except analyze.AIError as e:
         log.warning("pair failed: %s", e)
         return RedirectResponse(back + "&error=" + quote_plus(str(e)), 303)
@@ -459,7 +541,8 @@ async def make_pair(a: str = Form(...), b: str = Form(...), lang: str = Form("uz
         return RedirectResponse(back + "&error=" + quote_plus(f"AI xatosi: {type(e).__name__}"), 303)
     with db.tx() as c:
         c.execute(
-            "INSERT OR REPLACE INTO pairs (key, a, b, lang, created, data) VALUES (?,?,?,?,?,?)",
+            "INSERT INTO pairs (key, a, b, lang, created, data) VALUES (?,?,?,?,?,?) "
+            "ON CONFLICT (key) DO UPDATE SET created = excluded.created, data = excluded.data",
             (pairs.key(a, b, lang), a, b, lang, collectors.now_iso(), analyze.dumps(result)),
         )
     return RedirectResponse(back, 303)
@@ -497,7 +580,7 @@ def add_source(kind: str = Form(...), value: str = Form(...), label: str = Form(
     label = label or f"{KINDS[kind]}: {value[:60]}"
     with db.tx() as c:
         c.execute(
-            "INSERT OR IGNORE INTO sources (kind, value, label, lang) VALUES (?,?,?,?)",
+            "INSERT INTO sources (kind, value, label, lang) VALUES (?,?,?,?) ON CONFLICT DO NOTHING",
             (kind, value, label[:120], lang[:10]),
         )
     return RedirectResponse("/sources", 303)

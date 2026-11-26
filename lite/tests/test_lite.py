@@ -1,7 +1,9 @@
 """Offline tests: parsers on realistic samples, tagging, grouping, and every page."""
 
 import importlib
+import os
 import sys
+import uuid
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -13,6 +15,17 @@ import analyze
 import collectors
 
 NOW = datetime.now(UTC)
+
+
+def use_test_db(monkeypatch, tmp_path, name):
+    """SQLite by default; set TEST_DATABASE_URL to run the same tests on PostgreSQL."""
+    monkeypatch.setenv("WS_DB_PATH", str(tmp_path / f"{name}.db"))
+    pg = os.environ.get("TEST_DATABASE_URL")
+    if pg:
+        monkeypatch.setenv("DATABASE_URL", pg)
+        monkeypatch.setenv("WS_DB_SCHEMA", f"t_{uuid.uuid4().hex[:10]}")
+    else:
+        monkeypatch.delenv("DATABASE_URL", raising=False)
 
 
 def rfc822(dt):
@@ -121,7 +134,7 @@ def test_cluster_groups_same_story_only():
 
 @pytest.fixture
 def client(tmp_path, monkeypatch):
-    monkeypatch.setenv("WS_DB_PATH", str(tmp_path / "t.db"))
+    use_test_db(monkeypatch, tmp_path, "t")
     monkeypatch.delenv("APP_PASSWORD", raising=False)
     for m in ("db", "app"):
         sys.modules.pop(m, None)
@@ -147,7 +160,7 @@ def client(tmp_path, monkeypatch):
 
     from fastapi.testclient import TestClient
 
-    with TestClient(app_mod.app) as c:
+    with TestClient(app_mod.app, headers={"origin": "http://testserver"}) as c:
         import asyncio
 
         asyncio.run(app_mod.refresh())
@@ -215,14 +228,15 @@ def test_brief_with_fake_model(client, monkeypatch):
 
 
 def test_password_gate(tmp_path, monkeypatch):
-    monkeypatch.setenv("WS_DB_PATH", str(tmp_path / "p.db"))
+    use_test_db(monkeypatch, tmp_path, "p")
     monkeypatch.setenv("APP_PASSWORD", "s3cret")
-    sys.modules.pop("app", None)
+    for m in ("db", "app"):
+        sys.modules.pop(m, None)
     app_mod = importlib.import_module("app")
     monkeypatch.setattr(app_mod, "refresh", lambda: __import__("asyncio").sleep(0))
     from fastapi.testclient import TestClient
 
-    with TestClient(app_mod.app) as c:
+    with TestClient(app_mod.app, headers={"origin": "http://testserver"}) as c:
         assert c.get("/").status_code == 401
         assert c.get("/healthz").status_code == 200
         assert c.get("/", auth=("any", "s3cret")).status_code == 200
@@ -552,3 +566,58 @@ def test_quota_on_one_gemini_model_moves_to_next(monkeypatch):
     analyze._gemini_cache.clear()
     monkeypatch.setenv("GEMINI_API_KEY", "k")
     assert analyze._gemini("s", "p") == ("ok", "gemini-3.5-flash-lite")
+
+
+def test_links_must_be_web_addresses():
+    assert collectors.item("t", "javascript:alert(1)") is None
+    assert collectors.item("t", "data:text/html,x") is None
+    assert collectors.item("t", "https://ok.example/a")["url"] == "https://ok.example/a"
+    feed = b"""<?xml version="1.0"?><rss version="2.0"><channel><title>x</title>
+    <item><title>Bad</title><link>javascript:alert(1)</link></item>
+    <item><title>Good</title><link>https://ok.example/b</link></item></channel></rss>"""
+    assert [i["title"] for i in collectors.parse_feed(feed)] == ["Good"]
+
+
+def test_cross_site_posts_are_refused(client):
+    c, _ = client
+    from fastapi.testclient import TestClient
+
+    raw = TestClient(c.app)
+    assert raw.post("/sources/1/delete").status_code == 403  # no Origin at all
+    assert raw.post("/sources/1/delete", headers={"origin": "https://evil.example"}).status_code == 403
+    assert raw.post("/sources/1/delete", headers={"sec-fetch-site": "cross-site"}).status_code == 403
+    assert raw.post("/refresh", headers={"origin": "null"}).status_code == 403
+    ok = raw.post("/sources/1/toggle", headers={"sec-fetch-site": "same-origin"}, follow_redirects=False)
+    assert ok.status_code == 303
+    r = c.get("/")
+    assert "frame-ancestors 'none'" in r.headers["content-security-policy"]
+    assert r.headers["referrer-policy"] == "same-origin"
+
+
+def test_refresh_redirect_stays_on_site(client):
+    c, _ = client
+    r = c.post("/refresh", headers={"referer": "https://evil.example/x"}, follow_redirects=False)
+    assert r.headers["location"] == "/"
+    r = c.post("/refresh", headers={"referer": "http://testserver/map?id=2"}, follow_redirects=False)
+    assert r.headers["location"] == "/map?id=2"
+
+
+def test_ai_daily_limit_and_single_job(client, monkeypatch):
+    import asyncio
+
+    c, app_mod = client
+    monkeypatch.setenv("GEMINI_API_KEY", "k")
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.setitem(analyze.PROVIDERS, "gemini", lambda *a: ("Brif [1].", "m"))
+    monkeypatch.setattr(app_mod, "AI_DAILY_LIMIT", 1)
+    assert "Brif" in c.post("/brief", data={"lang": "uz", "hours": "24"}).text
+    r = c.post("/brief", data={"lang": "uz", "hours": "24"})
+    assert "limiti tugadi" in r.text and "AI: 1/1" in r.text
+
+    async def busy():
+        async with app_mod._ai_lock:
+            app_mod.state["ai_job"] = "xarita"
+            with pytest.raises(analyze.AIError, match="boshqa AI ish"):
+                await app_mod.run_ai("x", lambda: None)
+
+    asyncio.run(busy())

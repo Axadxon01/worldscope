@@ -85,6 +85,19 @@ jobs:
       - run: ruff check .
       - run: ruff format --check .
       - run: python -m pytest -q tests
+      - name: Same tests on PostgreSQL
+        run: python -m pytest -q tests
+        env:
+          TEST_DATABASE_URL: postgresql://lite:lite@localhost:5432/lite
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: lite
+          POSTGRES_PASSWORD: lite
+          POSTGRES_DB: lite
+        ports: ["5432:5432"]
+        options: --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
 
   frontend:
     name: Frontend (lint, types, build)

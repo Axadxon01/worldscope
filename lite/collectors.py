@@ -89,9 +89,13 @@ def item(title, url, summary="", publisher="", published=None, need_date=False) 
     when = to_iso(published)
     if not title or not url or (need_date and not when):
         return None
+    url = clean_url(str(url))
+    parts = urlsplit(url)
+    if parts.scheme not in ("http", "https") or not parts.netloc:
+        return None  # only web links: a "javascript:" link from a hostile feed would run in our page
     return {
         "title": title,
-        "url": clean_url(url),
+        "url": url,
         "summary": text_of(summary),
         "publisher": (publisher or "").strip()[:120],
         "published": when or now_iso(),

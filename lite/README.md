@@ -56,6 +56,13 @@ Keyin http://localhost:8000 ni oching. Birinchi yig'ish 1-2 daqiqa oladi.
 5. **Health Check Path**: `/healthz`
 6. Environment: `APP_PASSWORD` (saytga kirish paroli, majburiy tavsiya) va xohlasangiz `GEMINI_API_KEY` va/yoki `ANTHROPIC_API_KEY`.
 
+Doimiy saqlash uchun `DATABASE_URL` qo'shing: Render Postgres (bepul tarifi 30 kunda o'chadi) yoki
+Neon (bepul, muddatsiz). Ikkalasida ham "connection string"ni nusxalab, Environment'ga qo'ying.
+
+Xavfsizlik: faqat `http(s)` havolalar saqlanadi; o'zgartiruvchi so'rovlar (POST) faqat shu saytning
+o'z sahifalaridan qabul qilinadi; Content-Security-Policy va boshqa himoya sarlavhalari yoqilgan.
+Bir vaqtda faqat bitta AI ish bajariladi va kunlik limit sarlavhada ko'rinadi.
+
 Bepul tarif cheklovlari: 15 daqiqa ishlatilmasa uxlaydi va ochilganda ~1 daqiqada uyg'onib,
 yangiliklarni qayta yig'adi. Disk vaqtinchalik, shuning uchun qayta ishga tushganda saqlangan tahlillar va
 qo'shgan manbalaringiz o'chadi. Doimiy manbalarni `sources_default.json` ga yozing.
@@ -72,7 +79,10 @@ qo'shgan manbalaringiz o'chadi. Doimiy manbalarni `sources_default.json` ga yozi
 | `WS_MODEL` | `claude-haiku-5-5` | Claude modeli; chuqurroq tahlil uchun `claude-sonnet-5-5` |
 | `WS_REFRESH_MIN` | `30` | Necha daqiqada bir yig'ish |
 | `WS_KEEP_DAYS` | `7` | Necha kunlik yangilik saqlanadi |
-| `WS_DB_PATH` | `lite/data/worldscope.db` | SQLite fayli |
+| `WS_DB_PATH` | `lite/data/worldscope.db` | SQLite fayli (`DATABASE_URL` bo'lmasa) |
+| `DATABASE_URL` | yo'q | PostgreSQL manzili. Bo'lsa, tahlillar, xaritalar, juftliklar va manbalar qayta ishga tushganda o'chmaydi |
+| `WS_DB_SCHEMA` | `lite` | Postgres'dagi sxema; bazani boshqa ilova bilan bo'lishish mumkin, ularning jadvallariga tegilmaydi |
+| `WS_AI_DAILY_LIMIT` | `60` | Bir kunda nechta AI ish (tahlil, xarita, juftlik) bajarilishi mumkin |
 
 ## Testlar
 
@@ -80,5 +90,6 @@ qo'shgan manbalaringiz o'chadi. Doimiy manbalarni `sources_default.json` ga yozi
 cd lite && pip install pytest && python -m pytest -q tests
 ```
 
+Postgres'da sinash uchun: `TEST_DATABASE_URL=postgresql://... python -m pytest -q tests`.
 Testlar internetsiz ishlaydi: har bir manba turi uchun namunaviy javoblar, teglash, guruhlash,
 barcha sahifalar, parol va AI brifning havolalari tekshiriladi.

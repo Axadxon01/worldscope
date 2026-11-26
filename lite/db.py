@@ -1,15 +1,24 @@
-"""SQLite storage for WorldScope Lite. One file, no server."""
+"""Storage for WorldScope Lite: PostgreSQL when DATABASE_URL is set, otherwise one SQLite file.
+
+The app writes SQL once, in the dialect both understand (qmark parameters, ON CONFLICT, RETURNING);
+this module adapts it for Postgres. On Postgres the tables live in their own schema ("lite" by
+default), so the database can be shared with other apps without touching their tables.
+"""
 
 from __future__ import annotations
 
 import json
 import os
+import re
 import sqlite3
 import threading
 from contextlib import contextmanager
 from pathlib import Path
 
+DATABASE_URL = os.environ.get("DATABASE_URL", "").strip()
+PG_SCHEMA = re.sub(r"\W", "", os.environ.get("WS_DB_SCHEMA", "lite")) or "lite"
 DB_PATH = Path(os.environ.get("WS_DB_PATH", Path(__file__).parent / "data" / "worldscope.db"))
+IS_PG = DATABASE_URL.startswith(("postgres://", "postgresql://"))
 _lock = threading.Lock()
 
 SCHEMA = """
@@ -70,10 +79,54 @@ CREATE TABLE IF NOT EXISTS briefs (
     body        TEXT NOT NULL,          -- markdown with [n] citations
     cites       TEXT NOT NULL           -- JSON list of {n, article_id, title, url, publisher}
 );
+CREATE TABLE IF NOT EXISTS ai_usage (
+    day         TEXT PRIMARY KEY,       -- YYYY-MM-DD, UTC
+    calls       INTEGER NOT NULL DEFAULT 0
+);
 """
 
 
-def connect() -> sqlite3.Connection:
+# ------------------------------------------------------------------ connections
+
+
+def _pg_sql(sql: str) -> str:
+    """qmark → psycopg placeholders, and case-insensitive LIKE as SQLite has it."""
+    return re.sub(r"\bLIKE\b", "ILIKE", sql.replace("%", "%%").replace("?", "%s"))
+
+
+class _PgConn:
+    """Just enough of the sqlite3 connection API for this app, on top of psycopg."""
+
+    def __init__(self, conn):
+        self._conn = conn
+
+    def execute(self, sql: str, params=()):
+        return self._conn.execute(_pg_sql(sql), tuple(params))
+
+    def executescript(self, script: str):
+        for stmt in (s.strip() for s in script.split(";")):
+            if stmt:
+                self._conn.execute(stmt)
+
+    def commit(self):
+        self._conn.commit()
+
+    def close(self):
+        self._conn.close()
+
+
+def connect():
+    if IS_PG:
+        import psycopg
+        from psycopg.rows import dict_row
+
+        conn = psycopg.connect(
+            DATABASE_URL,
+            row_factory=dict_row,
+            connect_timeout=15,
+            options=f"-c search_path={PG_SCHEMA}",
+        )
+        return _PgConn(conn)
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(DB_PATH, check_same_thread=False, timeout=30)
     conn.row_factory = sqlite3.Row
@@ -94,13 +147,21 @@ def tx():
 
 
 def init(default_sources: list[dict]) -> None:
+    script = SCHEMA
+    if IS_PG:
+        script = script.replace("id          INTEGER PRIMARY KEY", "id          BIGSERIAL PRIMARY KEY")
+        script = re.sub(r"--[^\n]*", "", script)
+        with tx() as c:
+            c.execute(f"CREATE SCHEMA IF NOT EXISTS {PG_SCHEMA}")
     with tx() as c:
-        c.executescript(SCHEMA)
-        if c.execute("SELECT COUNT(*) FROM sources").fetchone()[0] == 0:
+        c.executescript(script)
+        # Links must be web addresses; drop anything older code may have stored (e.g. javascript:).
+        c.execute("DELETE FROM articles WHERE url NOT LIKE 'http://%' AND url NOT LIKE 'https://%'")
+        if c.execute("SELECT COUNT(*) AS n FROM sources").fetchone()["n"] == 0:
             for s in default_sources:
                 c.execute(
-                    "INSERT OR IGNORE INTO sources (kind, value, label, lang) VALUES (?,?,?,?)",
-                    (s["kind"], s["value"], s["label"], s.get("lang", "en")),
+                    "INSERT INTO sources (kind, value, label, lang, enabled) VALUES (?,?,?,?,?) ON CONFLICT DO NOTHING",
+                    (s["kind"], s["value"], s["label"], s.get("lang", "en"), 1 if s.get("enabled", True) else 0),
                 )
 
 
@@ -112,6 +173,14 @@ def rows(sql: str, params: tuple | list = ()) -> list[dict]:
 def one(sql: str, params: tuple | list = ()) -> dict | None:
     r = rows(sql, params)
     return r[0] if r else None
+
+
+def describe() -> str:
+    """Where the data lives, for the status line (no credentials)."""
+    if IS_PG:
+        host = re.sub(r"^.*@", "", DATABASE_URL).split("/")[0].split(":")[0]
+        return f"PostgreSQL ({host.split('.')[0]}, sxema {PG_SCHEMA})"
+    return "SQLite (vaqtinchalik fayl)"
 
 
 def loads(value: str | None) -> list:

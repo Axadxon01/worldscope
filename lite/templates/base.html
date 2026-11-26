@@ -19,6 +19,7 @@
     <a href="/sources" class="{{ 'on' if request.url.path == '/sources' }}">Manbalar</a>
   </nav>
   <form method="post" action="/refresh" class="refresh">
+    <span class="muted" title="AI so'rovlari bugun (UTC) / kunlik limit">AI: {{ ai_used_today() }}/{{ ai_limit() }}{% if state.ai_job %} · ishlamoqda{% endif %}</span>
     <span class="muted">
       {% if state.running %}Yangilanmoqda…{% elif state.last_run %}Yangilandi: {{ state.last_run|ago }}{% else %}Hali yangilanmagan{% endif %}
     </span>
@@ -26,6 +27,6 @@
   </form>
 </header>
 <main class="{% block mainclass %}{% endblock %}">{% block body %}{% endblock %}</main>
-<footer>Faqat sarlavha, qisqa matn va havola saqlanadi. To'liq matn manbaning o'zida.</footer>
+<footer>Faqat sarlavha, qisqa matn va havola saqlanadi. To'liq matn manbaning o'zida. · Ma'lumotlar: {{ db_where() }}</footer>
 </body>
 </html>
