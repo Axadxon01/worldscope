@@ -70,6 +70,22 @@ jobs:
       - run: uv run mypy
       - run: uv run pytest --cov=worldscope --cov-report=term-missing
 
+  lite:
+    name: Lite (lint, tests)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: lite
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt pytest ruff
+      - run: ruff check .
+      - run: ruff format --check .
+      - run: python -m pytest -q tests
+
   frontend:
     name: Frontend (lint, types, build)
     runs-on: ubuntu-latest

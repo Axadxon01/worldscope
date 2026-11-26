@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="uz">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>{% block title %}WorldScope Lite{% endblock %}</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header class="top">
+  <a class="brand" href="/">World<b>Scope</b> <span>Lite</span></a>
+  <nav>
+    <a href="/" class="{{ 'on' if request.url.path == '/' }}">Yangiliklar</a>
+    <a href="/brief" class="{{ 'on' if request.url.path == '/brief' }}">AI tahlil</a>
+    <a href="/sources" class="{{ 'on' if request.url.path == '/sources' }}">Manbalar</a>
+  </nav>
+  <form method="post" action="/refresh" class="refresh">
+    <span class="muted">
+      {% if state.running %}Yangilanmoqda…{% elif state.last_run %}Yangilandi: {{ state.last_run|ago }}{% else %}Hali yangilanmagan{% endif %}
+    </span>
+    <button {{ 'disabled' if state.running }}>↻ Yangilash</button>
+  </form>
+</header>
+<main>{% block body %}{% endblock %}</main>
+<footer>Faqat sarlavha, qisqa matn va havola saqlanadi. To'liq matn manbaning o'zida.</footer>
+</body>
+</html>

@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+{% macro qs() -%}
+?{% for k, v in f.items() %}{% set v = kwargs[k] if k in kwargs else v %}{% if v %}{{ k }}={{ v|urlencode }}&{% endif %}{% endfor %}
+{%- endmacro %}
+{% macro art(a) %}
+<li class="art">
+  <a class="t" href="{{ a.url }}" target="_blank" rel="noopener noreferrer">{{ a.title }}</a>
+  <div class="meta">
+    <span class="k k-{{ a.kind }}">{{ KINDS[a.kind] }}</span>
+    <span>{{ a.publisher }}</span> · <time title="{{ a.published }}">{{ a.published|ago }}</time>
+    {% for c in a.categories %}<a class="chip" href="{{ qs(cat=c) }}">{{ CATS.get(c, c) }}</a>{% endfor %}
+    {% for c in a.countries %}<a class="chip c" href="{{ qs(country=c) }}">{{ COUNTRIES.get(c, c) }}</a>{% endfor %}
+  </div>
+  {% if a.summary %}<p class="s">{{ a.summary }}</p>{% endif %}
+</li>
+{% endmacro %}
+
+{% block body %}
+<form class="filters" method="get">
+  <input type="search" name="q" value="{{ f.q }}" placeholder="Qidirish: davlat, mavzu, nashr…">
+  <select name="hours">
+    {% for h, l in [(6,'6 soat'),(24,'24 soat'),(48,'2 kun'),(168,'7 kun')] %}
+    <option value="{{ h }}" {{ 'selected' if f.hours == h }}>{{ l }}</option>{% endfor %}
+  </select>
+  <select name="kind">
+    <option value="">Barcha manbalar</option>
+    {% for k, l in KINDS.items() %}<option value="{{ k }}" {{ 'selected' if f.kind == k }}>{{ l }}</option>{% endfor %}
+  </select>
+  <select name="cat">
+    <option value="">Barcha mavzular</option>
+    {% for k, l in CATS.items() %}<option value="{{ k }}" {{ 'selected' if f.cat == k }}>{{ l }}</option>{% endfor %}
+  </select>
+  {% if f.country %}<input type="hidden" name="country" value="{{ f.country }}">{% endif %}
+  <input type="hidden" name="view" value="{{ f.view }}">
+  <button>Ko'rsatish</button>
+  {% if f.q or f.kind or f.cat or f.country %}<a href="/?view={{ f.view }}" class="muted">Tozalash</a>{% endif %}
+</form>
+
+{% if f.country %}<p class="active">Davlat: <b>{{ COUNTRIES.get(f.country, f.country) }}</b> · <a href="{{ qs(country='') }}">olib tashlash</a></p>{% endif %}
+
+{% if empty_db %}
+<div class="empty">
+  <h2>Yangiliklar hali yig'ilmagan</h2>
+  <p>Dastur ishga tushganda manbalardan avtomatik yig'adi; bu 1–2 daqiqa oladi. Sahifani biroz kutib yangilang.</p>
+</div>
+{% else %}
+<section class="stats">
+  <div class="box"><b>{{ ov.total }}</b><span>yangilik, {{ f.hours }} soat</span></div>
+  <div class="box"><b>{{ ov.stories|length }}</b><span>ko'p manbali voqea</span></div>
+  <div class="box wide">
+    <span class="lbl">Eng ko'p tilga olingan davlatlar</span>
+    {% for iso, name, n in ov.countries[:10] %}<a class="chip c" href="{{ qs(country=iso) }}">{{ name }} <i>{{ n }}</i></a>{% endfor %}
+  </div>
+  <div class="box wide">
+    <span class="lbl">Mavzular</span>
+    {% for slug, name, n in ov.categories %}<a class="chip" href="{{ qs(cat=slug) }}">{{ name }} <i>{{ n }}</i></a>{% endfor %}
+  </div>
+</section>
+
+<div class="tabs">
+  <a href="{{ qs(view='stories') }}" class="{{ 'on' if f.view != 'list' }}">Voqealar (guruhlangan)</a>
+  <a href="{{ qs(view='list') }}" class="{{ 'on' if f.view == 'list' }}">Barcha yangiliklar</a>
+</div>
+
+{% if f.view == 'list' %}
+<ul class="list">{% for a in arts %}{{ art(a) }}{% endfor %}</ul>
+{% else %}
+<ul class="list">
+{% for g in ov.groups[:80] %}
+  {% set pubs = g|map(attribute='publisher')|unique|list %}
+  <li class="story">
+    {% if pubs|length > 1 %}<span class="badge">{{ pubs|length }} ta manba</span>{% endif %}
+    <ul class="list inner">{{ art(g[0]) }}</ul>
+    {% if g|length > 1 %}
+    <details><summary>Yana {{ g|length - 1 }} ta xabar: {{ pubs[1:5]|join(', ') }}{% if pubs|length > 5 %}…{% endif %}</summary>
+      <ul class="list inner">{% for a in g[1:] %}{{ art(a) }}{% endfor %}</ul>
+    </details>
+    {% endif %}
+  </li>
+{% endfor %}
+</ul>
+{% endif %}
+{% if not arts %}<p class="empty">Bu filtrlar bo'yicha yangilik topilmadi.</p>{% endif %}
+{% endif %}
+{% endblock %}

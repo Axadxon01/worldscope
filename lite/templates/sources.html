@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block title %}Manbalar · WorldScope Lite{% endblock %}
+{% block body %}
+{% if error %}<p class="warn">{{ error }}</p>{% endif %}
+<form method="post" action="/sources/add" class="card addsrc">
+  <h3>Manba qo'shish</h3>
+  <div class="row">
+    <select name="kind" required>
+      <option value="telegram">Telegram kanal</option>
+      <option value="gnews">Google News qidiruvi</option>
+      <option value="rss">RSS / Atom manzili</option>
+      <option value="gdelt">GDELT qidiruvi</option>
+    </select>
+    <input name="value" required placeholder="kanal nomi, qidiruv so'zi yoki https://…/rss">
+    <input name="label" placeholder="Nomi (ixtiyoriy)">
+    <select name="lang" title="Google News nashri / manba tili">
+      {% for l in editions %}<option value="{{ l }}">{{ l }}</option>{% endfor %}<option value="uz">uz</option><option value="multi">multi</option>
+    </select>
+    <button>Qo'shish</button>
+  </div>
+  <p class="muted small">
+    <b>Telegram:</b> faqat ochiq kanallar (masalan <code>kunuzofficial</code>, <code>@daryo</code> yoki <code>t.me/kanal</code>).
+    <b>Google News:</b> istalgan so'z; kirishni bloklaydigan saytlarning sarlavhalari ham shu orqali keladi, masalan <code>site:reuters.com Uzbekistan</code>.
+    <b>GDELT:</b> butun dunyo matbuoti, masalan <code>(Uzbekistan OR Kazakhstan) sourcelang:russian</code>.
+  </p>
+</form>
+
+<table class="src">
+  <thead><tr><th>Manba</th><th>Turi</th><th>Holat</th><th>Saqlangan</th><th></th></tr></thead>
+  <tbody>
+  {% for s in srcs %}
+  <tr class="{{ '' if s.enabled else 'off' }}">
+    <td><b>{{ s.label }}</b><br><code class="small">{{ s.value }}</code></td>
+    <td><span class="k k-{{ s.kind }}">{{ KINDS[s.kind] }}</span> <span class="muted">{{ s.lang }}</span></td>
+    <td class="small">
+      {% if s.last_error %}<span class="bad">✕ {{ s.last_error }}</span>
+      {% elif s.last_ok %}<span class="good">✓ {{ s.last_count }} ta, {{ s.last_ok|ago }}</span>
+      {% else %}<span class="muted">hali tekshirilmagan</span>{% endif %}
+    </td>
+    <td>{{ s.stored }}</td>
+    <td><div class="acts">
+      <form method="post" action="/sources/{{ s.id }}/toggle"><button class="ghost">{{ "O'chirish" if s.enabled else "Yoqish" }}</button></form>
+      <form method="post" action="/sources/{{ s.id }}/delete" onsubmit="return confirm('Manbani o\'chirib tashlaysizmi?')"><button class="ghost danger">✕</button></form>
+    </div></td>
+  </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endblock %}
