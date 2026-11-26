@@ -12,7 +12,8 @@ from datetime import UTC, datetime, timedelta
 import db
 
 TASHKENT = timedelta(hours=5)
-DIGEST_HOUR = 7  # Tashkent time
+DIGEST_HOUR = 7  # Tashkent time: the morning message goes out from 07:00...
+DIGEST_UNTIL = 12  # ...until noon; a wake-up later in the day waits for the next morning
 
 # name → minimum time between runs
 EVERY = {
@@ -44,12 +45,18 @@ def mark(name: str, when: datetime | None = None) -> None:
         )
 
 
+def morning(now: datetime) -> datetime:
+    """Today's 07:00 in Tashkent, as a UTC time."""
+    local = now + TASHKENT
+    return local.replace(hour=DIGEST_HOUR, minute=0, second=0, microsecond=0) - TASHKENT
+
+
 def is_due(name: str, now: datetime, last: datetime | None) -> bool:
-    if last is not None and now - last < EVERY[name]:
-        return False
-    if name == "digest":  # the morning message waits for the morning in Tashkent
-        return (now + TASHKENT).hour >= DIGEST_HOUR
-    return True
+    if name == "digest":  # once each morning in Tashkent, whenever the service is first awake then
+        start = morning(now)
+        in_window = start <= now and (now + TASHKENT).hour < DIGEST_UNTIL
+        return in_window and (last is None or last < start)
+    return last is None or now - last >= EVERY[name]
 
 
 def due(now: datetime | None = None, last: dict[str, datetime] | None = None) -> list[str]:

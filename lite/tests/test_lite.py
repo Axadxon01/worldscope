@@ -1556,6 +1556,11 @@ def test_scheduler_decides_what_is_due():
     due = scheduler.due(now, {})
     assert "refresh" in due and "digest" not in due  # the digest waits for 07:00 Tashkent
     assert "digest" in scheduler.due(now + timedelta(hours=1), {})
+    # sent last evening (a deploy at 21:00 Tashkent): the next morning's digest still goes out
+    evening = datetime(2026, 11, 25, 16, 0, tzinfo=UTC)
+    assert "digest" in scheduler.due(now + timedelta(hours=1), {"digest": evening})
+    assert "digest" not in scheduler.due(now + timedelta(hours=2), {"digest": now + timedelta(hours=1)})
+    assert "digest" not in scheduler.due(datetime(2026, 11, 26, 9, 0, tzinfo=UTC), {})  # 14:00: too late today
     last = {"refresh": now - timedelta(minutes=10), "sanctions": now - timedelta(days=2)}
     later = scheduler.due(now, last)
     assert "refresh" not in later and "sanctions" not in later and "automap" in later

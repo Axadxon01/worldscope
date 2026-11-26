@@ -42,7 +42,7 @@
     <tbody>{% for name, every in EVERY.items() %}
       <tr><td>{{ {"refresh": "Yangiliklar", "automap": "Kunlik AI xaritasi", "digest": "Telegram digest", "weekly": "Juftliklar qayta tahlili",
                   "sanctions": "Sanksiya ro'yxatlari", "watch_risk": "Kuzatuv: xavf indeksi", "predictions": "Bashoratlar tekshiruvi"}[name] }}</td>
-        <td class="small">{{ (every.total_seconds() / 3600)|round|int }} soat</td>
+        <td class="small">{% if name == "digest" %}har kuni 07:00{% else %}{{ (every.total_seconds() / 3600)|round|int }} soat{% endif %}</td>
         <td class="small">{{ jobs[name].isoformat()|ago if name in jobs else "hali yo'q" }}</td>
         <td><form method="post" action="/admin/jobs"><input type="hidden" name="job" value="{{ name }}"><button class="ghost small">▶</button></form></td></tr>
     {% endfor %}</tbody>
