@@ -434,3 +434,17 @@ def test_slow_gemini_model_is_skipped(monkeypatch):
     analyze._gemini_cache.clear()
     monkeypatch.setenv("GEMINI_API_KEY", "k")
     assert analyze._gemini("s", "p") == ("ok", "gemini-3.5-flash-lite")
+
+
+@pytest.mark.parametrize(
+    "a,b,text,bad",
+    [
+        ("TUR", "UKR", "Belarus rahbariyati Ukraina mavzusida fikr bildirdi, Minsk muvozanat saqlamoqda", True),
+        ("KAZ", "CHN", "Qozog'iston va Xitoy energetika markazini tashkil etmoqda", False),
+        ("JOR", "UZB", "O‘zbekiston va Iordaniya strategik sherikligi", False),
+        ("KAZ", "RUS", "Tokayev Putin bilan uchrashdi; Qozog'iston Xitoy bilan ham muvozanat saqlaydi", False),
+        ("CHE", "UZB", "Shveysariya O'zbekistonga mablag'larni qaytarmoqda", False),
+    ],
+)
+def test_mismatched_links(a, b, text, bad):
+    assert analyze.mismatched(a, b, text) is bad

@@ -934,6 +934,28 @@ def _json_from(text: str) -> dict:
     raise AIError("AI javobini JSON sifatida o'qib bo'lmadi")
 
 
+_UZ_NAME_PATTERNS = [(re.compile(_term(n.split()[0] + "*")), iso) for iso, n in UZ_NAMES.items() if len(n) > 3]
+
+
+def countries_in(text: str) -> set[str]:
+    """Countries named in a piece of text, in English, Russian or Uzbek."""
+    found = set(tag(text, "")[1])
+    low = f" {text} ".lower().translate(_APOS)
+    found.update(iso for rx, iso in _UZ_NAME_PATTERNS if rx.search(low))
+    return found
+
+
+def mismatched(a: str, b: str, text: str) -> bool:
+    """True when the text is plainly about another country than the arrow's ends.
+
+    The model sometimes puts the right story on the wrong pair (a bubble about Belarus on a
+    Turkey→Ukraine arrow). If the text names a third country and leaves out one of the ends, the
+    link is wrong. Text that names nobody we recognise is given the benefit of the doubt.
+    """
+    named = countries_in(text)
+    return bool(named - {a, b}) and not {a, b} <= named
+
+
 def clean_links(raw: dict, items: list[dict]) -> dict:
     """Keep only links that point at real countries and real items; trim every text field."""
     out, seen = [], set()
@@ -953,6 +975,8 @@ def clean_links(raw: dict, items: list[dict]) -> dict:
                 ev.append(n)
         if not ev:
             continue  # a link nobody reported is not shown
+        if mismatched(a, b, f"{link.get('title', '')} {link.get('bubble', '')}"):
+            continue
         seen.add((a, b))
         kind = link.get("type") if link.get("type") in LINK_TYPES else "diplomacy"
         conf = link.get("confidence") if link.get("confidence") in ("high", "medium", "low") else "medium"
