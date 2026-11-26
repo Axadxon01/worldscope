@@ -448,3 +448,25 @@ def test_slow_gemini_model_is_skipped(monkeypatch):
 )
 def test_mismatched_links(a, b, text, bad):
     assert analyze.mismatched(a, b, text) is bad
+
+
+def test_map_retries_broken_json(monkeypatch):
+    replies = iter(['{"links": [ broken', LINKS_JSON])
+    monkeypatch.setenv("GEMINI_API_KEY", "k")
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.setitem(analyze.PROVIDERS, "gemini", lambda *a: (next(replies), "m"))
+    arts = [
+        {
+            "id": i,
+            "title": f"Kazakhstan US talks {i}",
+            "url": f"https://x/{i}",
+            "publisher": f"P{i}",
+            "published": "2026-11-26T00:00:00+00:00",
+            "summary": "",
+            "countries": ["KAZ", "USA"],
+            "categories": [],
+        }
+        for i in (1, 2)
+    ]
+    out = analyze.write_links(arts, "uz")
+    assert out["links"] and out["model"] == "m"

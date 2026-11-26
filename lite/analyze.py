@@ -1005,8 +1005,16 @@ def write_links(articles: list[dict], lang: str, focus: str = "") -> dict:
         focus_hint=focus or "Central Asia and its relations with the major powers",
     )
     task = "Return the JSON." + (f" Focus on: {focus}." if focus else "")
-    text, model = complete(system, "News items:\n" + "\n".join(numbered(items)) + "\n\n" + task, json_mode=True)
-    result = clean_links(_json_from(text), items)
+    prompt = "News items:\n" + "\n".join(numbered(items)) + "\n\n" + task
+    for attempt in range(2):  # small models now and then return broken JSON; one more try usually works
+        text, model = complete(system, prompt, json_mode=True)
+        try:
+            raw = _json_from(text)
+            break
+        except AIError:
+            if attempt == 1:
+                raise
+    result = clean_links(raw, items)
     if not result["links"]:
         raise AIError("AI davlatlar orasidagi bog'liqlikni topa olmadi; davrni kengaytirib ko'ring")
     result["model"] = model
