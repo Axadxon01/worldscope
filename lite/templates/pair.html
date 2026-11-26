@@ -17,6 +17,27 @@
   {% endfor %}
 </select>
 {% endmacro %}
+{% macro numbers(nums, note='') %}
+{% if nums and (nums.rows or nums.trade) %}
+  <h3>Raqamlarda</h3>
+  <table class="facts">
+    <thead><tr><th></th><th>{{ name(a) }}</th><th>{{ name(b) }}</th></tr></thead>
+    <tbody>
+    {% for row in nums.rows %}
+      <tr><td>{{ row.label }}</td><td>{{ row.a }} <span class="yr">{{ row.a_year }}</span></td><td>{{ row.b }} <span class="yr">{{ row.b_year }}</span></td></tr>
+    {% endfor %}
+    {% set t = nums.trade %}
+    {% if t %}
+      <tr class="trade"><td>Tovar eksporti ({{ t.year }})</td>
+        <td>{{ name(a) }} → {{ name(b) }}: <b>{{ fmt_usd(t.a_to_b) }}</b></td>
+        <td>{{ name(b) }} → {{ name(a) }}: <b>{{ fmt_usd(t.b_to_a) }}</b></td></tr>
+    {% endif %}
+    </tbody>
+  </table>
+  <p class="muted small">Manba: Jahon banki (oxirgi mavjud yil), UN Comtrade. {% if not nums.trade %}Ikki tomonlama savdo bo'yicha so'nggi yillar uchun raqam topilmadi.{% endif %}</p>
+  {% if note %}<p class="asym"><b>Raqamlar nima deydi:</b> {{ note }}</p>{% endif %}
+{% endif %}
+{% endmacro %}
 {% macro ev(list) %}{% for n in list %}<a class="cite" href="#s{{ n }}">{{ n }}</a>{% endfor %}{% if not list %}<span class="bg" title="Yangiliklardan emas, umumiy ma'lum faktlardan">umumiy</span>{% endif %}{% endmacro %}
 
 {% block body %}
@@ -75,25 +96,7 @@
   </div>
   {% endif %}
 
-  {% if r.facts and (r.facts.rows or r.facts.trade) %}
-  <h3>Raqamlarda</h3>
-  <table class="facts">
-    <thead><tr><th></th><th>{{ name(a) }}</th><th>{{ name(b) }}</th></tr></thead>
-    <tbody>
-    {% for row in r.facts.rows %}
-      <tr><td>{{ row.label }}</td><td>{{ row.a }} <span class="yr">{{ row.a_year }}</span></td><td>{{ row.b }} <span class="yr">{{ row.b_year }}</span></td></tr>
-    {% endfor %}
-    {% set t = r.facts.trade %}
-    {% if t %}
-      <tr class="trade"><td>Tovar eksporti ({{ t.year }})</td>
-        <td>{{ name(a) }} → {{ name(b) }}: <b>{{ fmt_usd(t.a_to_b) }}</b></td>
-        <td>{{ name(b) }} → {{ name(a) }}: <b>{{ fmt_usd(t.b_to_a) }}</b></td></tr>
-    {% endif %}
-    </tbody>
-  </table>
-  <p class="muted small">Manba: Jahon banki (oxirgi mavjud yil), UN Comtrade. {% if not r.facts.trade %}Ikki tomonlama savdo bo'yicha so'nggi yillar uchun raqam topilmadi.{% endif %}</p>
-  {% if r.numbers_note %}<p class="asym"><b>Raqamlar nima deydi:</b> {{ r.numbers_note|cites(r.sources) }}</p>{% endif %}
-  {% endif %}
+  {{ numbers(nums, r.numbers_note|cites(r.sources) if r.numbers_note else '') }}
 
   {% if r.triangle %}{% set tr = r.triangle %}
   <div class="triangle">
@@ -147,8 +150,10 @@
 </section>
 {% elif a and b %}
 <div class="empty"><h2>{{ name(a) }} ↔ {{ name(b) }}</h2>
-  <p>Hali tahlil qilinmagan. Bazada bu ikki davlat birga tilga olingan {{ db_news|length }} ta yangi xabar bor; tahlil paytida Google News'dan ham qidiriladi.</p></div>
+  <p>Hali AI tahlili yo'q. Bazada bu ikki davlat birga tilga olingan {{ db_news|length }} ta yangi xabar bor; tahlil paytida Google News'dan ham qidiriladi.</p></div>
+<section class="pairres">{{ numbers(nums) }}</section>
 {% endif %}
+{% if a and b and tg_bot %}<p class="muted small">Telegram'da kuzatish: botga <code>/kuzat {{ a }} {{ b }}</code> yozing, munosabat o'zgarsa xabar keladi.</p>{% endif %}
 
 {% if recent %}
 <div class="recent small"><b>Oxirgi tahlillar:</b>

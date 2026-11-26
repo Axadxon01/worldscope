@@ -12,6 +12,7 @@ import logging
 import os
 import re
 import secrets
+import time
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -27,8 +28,10 @@ from markupsafe import Markup, escape
 import analyze
 import collectors
 import db
+import embed
 import facts
 import pairs
+import telegram_bot
 
 HERE = Path(__file__).parent
 REFRESH_MIN = int(os.environ.get("WS_REFRESH_MIN", "30"))
@@ -43,6 +46,17 @@ state = {"running": False, "last_run": None, "last_added": 0, "ai_job": ""}
 AI_DAILY_LIMIT = int(os.environ.get("WS_AI_DAILY_LIMIT", "60"))
 _ai_lock = asyncio.Lock()
 _background: set[asyncio.Task] = set()
+CRON_TOKEN = os.environ.get("CRON_TOKEN", "").strip()
+WEEKLY_PAIRS = int(os.environ.get("WS_WEEKLY_PAIRS", "4"))
+# Called by machines with their own secret, not by people with the site password.
+MACHINE_PATHS = ("/healthz", "/telegram/webhook", "/cron/")
+
+
+def _keep(task: asyncio.Task) -> asyncio.Task:
+    """Hold a reference so a fire-and-forget task is not garbage-collected mid-run."""
+    _background.add(task)
+    task.add_done_callback(_background.discard)
+    return task
 
 
 # ------------------------------------------------------------------ collection
@@ -96,6 +110,42 @@ def _save(results) -> int:
     return added
 
 
+EMBED_PER_MINUTE = 90  # the free tier allows 100 embedding items per minute per model
+EMBED_ROUNDS = int(os.environ.get("WS_EMBED_ROUNDS", "4"))
+
+
+def _embed_new(limit: int = EMBED_PER_MINUTE) -> int:
+    """Meaning vectors for the newest headlines that have none; failures only cost the grouping."""
+    rows = db.rows("SELECT id, title FROM articles WHERE emb IS NULL ORDER BY published DESC LIMIT ?", (limit,))
+    if not rows:
+        return 0
+    try:
+        vecs = embed.embed([r["title"] for r in rows])
+    except Exception as e:  # quota, network: the token-based grouping still works
+        log.warning("embedding failed: %s", type(e).__name__)
+        return -1
+    with db.tx() as c:
+        for r, v in zip(rows, vecs, strict=True):
+            c.execute("UPDATE articles SET emb = ? WHERE id = ?", (embed.pack(v), r["id"]))
+    return len(rows)
+
+
+def _embed_backlog() -> None:
+    """A few rounds a minute apart, newest first, within the free per-minute quota."""
+    if state.get("embedding"):
+        return
+    state["embedding"] = True
+    try:
+        for i in range(EMBED_ROUNDS):
+            done = _embed_new()
+            if done < EMBED_PER_MINUTE:  # nothing left, or the quota said stop
+                break
+            if i < EMBED_ROUNDS - 1:
+                time.sleep(61)
+    finally:
+        state["embedding"] = False
+
+
 async def refresh() -> int:
     if state["running"]:
         return 0
@@ -104,6 +154,8 @@ async def refresh() -> int:
         sources = db.rows("SELECT * FROM sources WHERE enabled=1")
         results = await collectors.collect(sources)
         added = await asyncio.to_thread(_save, results)
+        if embed.enabled():
+            _keep(asyncio.create_task(asyncio.to_thread(_embed_backlog)))
         state.update(last_run=collectors.now_iso(), last_added=added)
         errors = sum(1 for _, _, e in results if e)
         log.info("refresh: %d sources, %d new articles, %d errors", len(sources), added, errors)
@@ -125,6 +177,8 @@ async def _loop():
 async def lifespan(_app):
     db.init(json.loads((HERE / "sources_default.json").read_text(encoding="utf-8")))
     task = asyncio.create_task(_loop())
+    if telegram_bot.enabled():
+        _keep(asyncio.create_task(telegram_bot.setup_webhook()))
     yield
     task.cancel()
 
@@ -165,7 +219,8 @@ def _same_site(request: Request) -> bool:
 
 @app.middleware("http")
 async def password_gate(request: Request, call_next):
-    if PASSWORD and request.url.path != "/healthz":
+    machine = request.url.path.startswith(MACHINE_PATHS)
+    if PASSWORD and not machine:
         ok = False
         header = request.headers.get("authorization", "")
         if header.startswith("Basic "):
@@ -176,7 +231,7 @@ async def password_gate(request: Request, call_next):
                 ok = False
         if not ok:
             return Response("Parol kerak", 401, {"WWW-Authenticate": 'Basic realm="WorldScope"'})
-    if request.method not in SAFE_METHODS and not _same_site(request):
+    if request.method not in SAFE_METHODS and not machine and not _same_site(request):
         return Response("So'rov boshqa saytdan keldi va rad etildi.", 403)
     response = await call_next(request)
     response.headers["X-Frame-Options"] = "DENY"
@@ -350,9 +405,7 @@ def feed(
 
 @app.post("/refresh")
 async def do_refresh(request: Request):
-    task = asyncio.create_task(refresh())
-    _background.add(task)  # keep a reference so the task is not garbage-collected mid-run
-    task.add_done_callback(_background.discard)
+    _keep(asyncio.create_task(refresh()))
     back = urlsplit(request.headers.get("referer") or "/")
     target = back.path if back.netloc in ("", request.headers.get("host", "")) and back.path.startswith("/") else "/"
     return RedirectResponse(target + (f"?{back.query}" if back.query and target != "/" else ""), 303)
@@ -537,16 +590,24 @@ def _spark(history: list[dict], w: int = 260, h: int = 54) -> list[dict]:
 
 
 @app.get("/pair", response_class=HTMLResponse)
-def pair_page(request: Request, a: str = "", b: str = "", c: str = "", lang: str = "uz", error: str = ""):
+async def pair_page(request: Request, a: str = "", b: str = "", c: str = "", lang: str = "uz", error: str = ""):
     a, b, c = a.upper()[:3], b.upper()[:3], c.upper()[:3]
     lang = lang if lang in analyze.LANG_NAMES else "uz"
     if c and (not pairs.valid(c) or c in (a, b)):
         c = ""
-    result, history = None, []
+    result, history, nums = None, [], None
     if pairs.valid(a) and pairs.valid(b) and a != b:
         k = pairs.key(a, b, lang, c)
-        result = _pair_row(k)
-        history = _history(k)
+        result = await asyncio.to_thread(_pair_row, k)
+        history = await asyncio.to_thread(_history, k)
+        if result and result.get("facts"):
+            nums = result["facts"]
+        else:  # the figures need no AI: show them before any analysis exists
+            try:
+                f = await asyncio.wait_for(facts.pair_facts(a, b), 25)
+                nums = {"rows": facts.rows_for(f, a, b), "trade": f.get("trade")}
+            except Exception:
+                log.warning("facts for %s-%s unavailable", a, b)
     recent = db.rows("SELECT a, b, c, lang, created FROM pairs ORDER BY created DESC LIMIT 12")
     coords = {k: [round(v["lat"], 2), round(v["lon"], 2)] for k, v in analyze.COUNTRY_INFO.items()}
     payload = {
@@ -569,6 +630,8 @@ def pair_page(request: Request, a: str = "", b: str = "", c: str = "", lang: str
             "error": error,
             "result": result,
             "spark": _spark(history),
+            "nums": nums,
+            "tg_bot": telegram_bot.enabled(),
             "recent": recent,
             "options": pairs.country_options(),
             "TIERS": pairs.TIERS,
@@ -576,7 +639,11 @@ def pair_page(request: Request, a: str = "", b: str = "", c: str = "", lang: str
             "tier": pairs.tier,
             "name": analyze.display_name,
             "ai": analyze.ai_available(),
-            "db_news": _pair_db_news(a, b) if a and b and not result and pairs.valid(a) and pairs.valid(b) else [],
+            "db_news": (
+                await asyncio.to_thread(_pair_db_news, a, b)
+                if a and b and not result and pairs.valid(a) and pairs.valid(b)
+                else []
+            ),
             "payload": Markup(json.dumps(payload, ensure_ascii=False).replace("</", "<\\/")),
         },
     )
@@ -604,6 +671,98 @@ async def make_pair(a: str = Form(...), b: str = Form(...), c: str = Form(""), l
         log.exception("pair failed")
         return RedirectResponse(back + "&error=" + quote_plus(f"AI xatosi: {type(e).__name__}"), 303)
     return RedirectResponse(back, 303)
+
+
+# ------------------------------------------------------------------ Telegram and scheduled jobs
+
+
+@app.post("/telegram/webhook")
+async def telegram_webhook(request: Request):
+    given = request.headers.get("x-telegram-bot-api-secret-token", "")
+    if not telegram_bot.enabled() or not secrets.compare_digest(given, telegram_bot.webhook_secret()):
+        return Response(status_code=403)
+    try:
+        update = await request.json()
+    except ValueError:
+        return Response(status_code=400)
+    # a command touches the database and sends one or two messages: quick enough to answer inline
+    await _safe_handle(update)
+    return {"ok": True}
+
+
+async def _safe_handle(update: dict) -> None:
+    try:
+        await telegram_bot.handle(update)
+    except Exception:
+        log.exception("telegram update failed")
+
+
+async def job_digest(force: bool = False) -> dict:
+    today = collectors.now_iso()[:10]
+    if not force and db.one("SELECT id FROM digests WHERE created >= ?", (today,)):
+        return {"skipped": "bugungi digest allaqachon yuborilgan"}
+    await refresh()
+    arts = await asyncio.to_thread(_articles, 24)
+    try:
+        body, model = await run_ai("kunlik digest", telegram_bot.build_digest, arts, analyze.ai_available())
+    except analyze.AIError as e:  # busy or out of budget: headlines without AI are still worth sending
+        log.warning("digest without AI: %s", e)
+        body, model = await asyncio.to_thread(telegram_bot.build_digest, arts, False)
+    with db.tx() as c:
+        c.execute("INSERT INTO digests (created, body, model) VALUES (?,?,?)", (collectors.now_iso(), body, model))
+    sent = await telegram_bot.broadcast(body) if telegram_bot.enabled() else 0
+    return {"sent": sent, "model": model}
+
+
+async def job_weekly() -> dict:
+    """Re-analyse the followed pairs whose analysis is oldest; alert followers when one moves."""
+    follows = await asyncio.to_thread(
+        db.rows,
+        """SELECT f.a, f.b, f.lang, f.key, MAX(p.created) AS last
+           FROM tg_follows f LEFT JOIN pairs p ON p.key = f.key
+           GROUP BY f.a, f.b, f.lang, f.key ORDER BY last""",
+    )
+    seen, done, alerts, errors = set(), [], 0, []
+    for f in follows:
+        if f["key"] in seen or len(done) >= WEEKLY_PAIRS:
+            continue
+        seen.add(f["key"])
+        try:
+            new, old = await analyze_pair(f["a"], f["b"], f["lang"])
+        except analyze.AIError as e:
+            errors.append(f"{f['key']}: {e}")
+            if "limiti tugadi" in str(e):
+                break
+            continue
+        done.append(f["key"])
+        if not telegram_bot.enabled():
+            continue
+        if old is None or telegram_bot.moved(new, old):
+            text = (
+                telegram_bot.alert_text(f["a"], f["b"], new, old)
+                if old
+                else "🆕 Birinchi tahlil tayyor:\n"
+                + telegram_bot._pair_line(f["a"], f["b"], new)
+                + "\n\n"
+                + telegram_bot.pair_link(f["a"], f["b"])
+            )
+            for r in await asyncio.to_thread(db.rows, "SELECT chat_id FROM tg_follows WHERE key = ?", (f["key"],)):
+                alerts += await telegram_bot.send(r["chat_id"], text)
+    return {"analysed": done, "alerts": alerts, "errors": errors}
+
+
+@app.api_route("/cron/{job}", methods=["GET", "POST"])
+async def cron(job: str, request: Request, force: int = 0):
+    given = request.headers.get("x-cron-token", "")
+    if not CRON_TOKEN or not secrets.compare_digest(given, CRON_TOKEN):
+        return Response(status_code=404)
+    if job == "refresh":
+        return {"added": await refresh()}
+    if job == "digest":
+        return await job_digest(bool(force))
+    if job == "weekly":
+        return await job_weekly()
+    return Response(status_code=404)
 
 
 @app.get("/sources", response_class=HTMLResponse)
@@ -660,4 +819,5 @@ def delete_source(sid: int):
 
 @app.get("/api/articles")
 def api_articles(hours: str = "24", q: str = "", kind: str = "", cat: str = "", country: str = ""):
-    return JSONResponse(_articles(_hours(hours), q, kind, cat, country)[:500])
+    arts = _articles(_hours(hours), q, kind, cat, country)[:500]
+    return JSONResponse([{k: v for k, v in a.items() if k != "emb"} for a in arts])

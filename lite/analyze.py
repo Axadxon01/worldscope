@@ -512,6 +512,13 @@ def cluster(articles: list[dict]) -> list[list[dict]]:
         else:
             groups.append((set(toks), [a]))
     out = [g[1] for g in groups]
+    if any(a.get("emb") for a in articles):  # join the same story told in other languages
+        import embed
+
+        out.sort(key=lambda g: g[0]["published"], reverse=True)
+        out = embed.merge_groups(out)
+        for g in out:  # lead with the newest headline, preferably in Uzbek or English
+            g.sort(key=lambda a: (a.get("lang") in ("uz", "en"), a["published"]), reverse=True)
     out.sort(key=lambda g: (len({a["publisher"] for a in g}), len(g), g[0]["published"]), reverse=True)
     return out
 

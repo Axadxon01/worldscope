@@ -31,6 +31,19 @@ To'liq WorldScope (`frontend/`, `backend/`) o'zgarishsiz qoladi; bu papka undan 
   Yangilikdan olingan da'volar raqam bilan manbaga bog'lanadi, umumiy bilimdan olinganlari "umumiy" deb belgilanadi.
   Natija saqlanadi; `/pair?a=UZB&b=AUS` havolasi uni qayta ochadi.
 
+- **Raqamlar**: juftlik sahifasida Jahon banki (YaIM, aholi jon boshiga YaIM, aholi, harbiy xarajat, savdo
+  ulushi, pul o'tkazmalari) va UN Comtrade (ikki tomonlama tovar eksporti). Kalit kerak emas, 30 kun keshlanadi,
+  AI'siz ham ko'rinadi va AI tahliliga ham beriladi.
+- **Tarix va bashorat tekshiruvi**: har bir juftlik tahlili saqlanib, ball grafigi chiziladi. Qayta tahlilda
+  oldingi ssenariylar beriladi va AI qaysi biri amalga oshayotganini baholaydi.
+- **Uchburchak**: ixtiyoriy uchinchi davlat C. Uning A–B munosabatiga ta'siri, A–C va B–C ballari, kim yutadi
+  va kimda ta'sir richagi bor.
+- **Ko'p tilli guruhlash**: `GEMINI_API_KEY` bo'lsa, sarlavhalarning ma'no vektorlari olinadi va bitta voqea
+  haqidagi o'zbekcha, ruscha, inglizcha xabarlar bir guruhga tushadi (bepul limit: daqiqasiga 100 sarlavha).
+- **Telegram bot** (`TELEGRAM_BOT_TOKEN`): `/start`, `/bugun`, `/kuzat UZB AUS`, `/kuzatuvlar`, `/bekor`,
+  `/juft`, `/stop`. Har kuni ertalab digest; kuzatilgan juftlik har hafta qayta tahlil qilinadi va ball
+  `WS_ALERT_DELTA` (2) ga o'zgarsa ogohlantirish keladi. Webhook o'zi ro'yxatdan o'tadi.
+
 Faqat sarlavha, qisqa matn va havola saqlanadi. Paywall va bot himoyasi aylanib o'tilmaydi.
 Instagram'ning ochiq API'si yo'q va scraping qoidalariga zid, shuning uchun qo'shilmagan.
 
@@ -67,6 +80,14 @@ Bepul tarif cheklovlari: 15 daqiqa ishlatilmasa uxlaydi va ochilganda ~1 daqiqad
 yangiliklarni qayta yig'adi. Disk vaqtinchalik, shuning uchun qayta ishga tushganda saqlangan tahlillar va
 qo'shgan manbalaringiz o'chadi. Doimiy manbalarni `sources_default.json` ga yozing.
 
+## Rejali ishlar
+
+Bepul Render xizmati uxlaganda o'z taymeri ham to'xtaydi. `.github/workflows/lite-cron.yml` uni
+GitHub Actions orqali uyg'otadi: har 6 soatda yangilash, har kuni 07:30 (Toshkent) digest, dushanba
+10:00 da kuzatilgan juftliklar. Ishlashi uchun: bitta tasodifiy token yarating, uni Render'da `CRON_TOKEN`,
+GitHub'da (Settings → Secrets → Actions) `LITE_CRON_TOKEN` sifatida qo'ying. GitHub rejali ishlarni faqat
+asosiy (`main`) branch'dan ishga tushiradi.
+
 ## Sozlamalar
 
 | O'zgaruvchi | Standart | Ma'nosi |
@@ -83,6 +104,12 @@ qo'shgan manbalaringiz o'chadi. Doimiy manbalarni `sources_default.json` ga yozi
 | `DATABASE_URL` | yo'q | PostgreSQL manzili. Bo'lsa, tahlillar, xaritalar, juftliklar va manbalar qayta ishga tushganda o'chmaydi |
 | `WS_DB_SCHEMA` | `lite` | Postgres'dagi sxema; bazani boshqa ilova bilan bo'lishish mumkin, ularning jadvallariga tegilmaydi |
 | `WS_AI_DAILY_LIMIT` | `60` | Bir kunda nechta AI ish (tahlil, xarita, juftlik) bajarilishi mumkin |
+| `TELEGRAM_BOT_TOKEN` | yo'q | @BotFather bergan token; bot va kunlik digestni yoqadi |
+| `PUBLIC_URL` | `https://worldscope-lite.onrender.com` | Bot havolalari va webhook uchun saytning manzili |
+| `CRON_TOKEN` | yo'q | `/cron/refresh`, `/cron/digest`, `/cron/weekly` uchun maxfiy token (GitHub'da `LITE_CRON_TOKEN`) |
+| `WS_WEEKLY_PAIRS` | `4` | Haftalik ishda nechta kuzatilgan juftlik qayta tahlil qilinadi |
+| `WS_EMBED` | `1` | `0` bo'lsa ma'no vektorlari o'chadi |
+| `WS_EMBED_MERGE` | `0.92` | Ma'no o'xshashligi chegarasi |
 
 ## Testlar
 

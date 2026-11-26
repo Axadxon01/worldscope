@@ -136,7 +136,7 @@ def test_cluster_groups_same_story_only():
 def client(tmp_path, monkeypatch):
     use_test_db(monkeypatch, tmp_path, "t")
     monkeypatch.delenv("APP_PASSWORD", raising=False)
-    for m in ("db", "app"):
+    for m in ("db", "facts", "telegram_bot", "app"):
         sys.modules.pop(m, None)
     import db  # noqa: F401
 
@@ -157,6 +157,12 @@ def client(tmp_path, monkeypatch):
     monkeypatch.setitem(collectors.FETCHERS, "gdelt", lambda *a: fake(*a, _kind="gdelt"))
     monkeypatch.setitem(collectors.FETCHERS, "rss", broken)
     monkeypatch.setattr(app_mod, "REFRESH_MIN", 10_000)
+    monkeypatch.setenv("WS_EMBED", "0")  # no meaning vectors from the real API in tests
+
+    async def no_facts(a, b):  # tests stay offline; a test that needs figures patches its own
+        return {"countries": {}, "trade": None}
+
+    monkeypatch.setattr(app_mod.facts, "pair_facts", no_facts)
 
     from fastapi.testclient import TestClient
 
@@ -230,7 +236,7 @@ def test_brief_with_fake_model(client, monkeypatch):
 def test_password_gate(tmp_path, monkeypatch):
     use_test_db(monkeypatch, tmp_path, "p")
     monkeypatch.setenv("APP_PASSWORD", "s3cret")
-    for m in ("db", "app"):
+    for m in ("db", "facts", "telegram_bot", "app"):
         sys.modules.pop(m, None)
     app_mod = importlib.import_module("app")
     monkeypatch.setattr(app_mod, "refresh", lambda: __import__("asyncio").sleep(0))
@@ -729,3 +735,219 @@ def test_facts_helpers():
     assert rows[0]["a"] == "147.0 mlrd $" and rows[0]["b"] == "1.8 trln $"
     block = facts.prompt_block(FACTS, "UZB", "AUS", {"UZB": "O'zbekiston", "AUS": "Avstraliya"})
     assert "O'zbekiston→Avstraliya 162.7 ming $" in block
+
+
+# ------------------------------------------------------------------ Telegram bot and scheduled jobs
+
+
+@pytest.fixture
+def bot(client, monkeypatch):
+    c, app_mod = client
+    telegram_bot = app_mod.telegram_bot
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "123:abc")
+    monkeypatch.setattr(app_mod, "CRON_TOKEN", "cron-secret")
+    sent = []
+
+    async def fake_api(method, **params):
+        sent.append((method, params))
+        return {"ok": True}
+
+    monkeypatch.setattr(telegram_bot, "api", fake_api)
+    return c, app_mod, telegram_bot, sent
+
+
+def tg(c, bot_mod, text, chat=42):
+    upd = {"message": {"chat": {"id": chat, "first_name": "Ali"}, "text": text}}
+    return c.post("/telegram/webhook", json=upd, headers={"x-telegram-bot-api-secret-token": bot_mod.webhook_secret()})
+
+
+def texts(sent):
+    return [p["text"] for m, p in sent if m == "sendMessage"]
+
+
+def test_webhook_needs_telegram_secret(bot):
+    c, _, bot_mod, _sent = bot
+    from fastapi.testclient import TestClient
+
+    raw = TestClient(c.app)
+    assert raw.post("/telegram/webhook", json={}).status_code == 403
+    assert (
+        raw.post("/telegram/webhook", json={}, headers={"x-telegram-bot-api-secret-token": "wrong"}).status_code == 403
+    )
+    assert tg(raw, bot_mod, "/start").status_code == 200  # no site password or Origin needed
+    assert (
+        raw.get("/cron/refresh").status_code == 404
+        and raw.get("/cron/refresh", headers={"x-cron-token": "x"}).status_code == 404
+    )
+
+
+def test_bot_commands(bot):
+    c, _app, bot_mod, sent = bot
+    import db
+
+    tg(c, bot_mod, "/start")
+    assert db.one("SELECT active FROM tg_subscribers WHERE chat_id = '42'")["active"] == 1
+    assert "Xush kelibsiz" in texts(sent)[-1]
+    tg(c, bot_mod, "/kuzat O'zbekiston janubiy koreya")
+    assert "Kuzatuvga olindi" in texts(sent)[-1] and "Janubiy Koreya" in texts(sent)[-1]
+    tg(c, bot_mod, "/kuzat aqsh rossiya")
+    tg(c, bot_mod, "/kuzatuvlar")
+    assert "AQSh ↔ Rossiya" in texts(sent)[-1] and "O'zbekiston ↔ Janubiy Koreya" in texts(sent)[-1]
+    tg(c, bot_mod, "/kuzat Atlantida Mars")
+    assert "Ikki davlatni yozing" in texts(sent)[-1]
+    tg(c, bot_mod, "/bekor USA RUS")
+    assert db.one("SELECT COUNT(*) n FROM tg_follows")["n"] == 1
+    tg(c, bot_mod, "/bugun")
+    assert "hali tayyor emas" in texts(sent)[-1]
+    tg(c, bot_mod, "/stop")
+    assert db.one("SELECT active FROM tg_subscribers WHERE chat_id = '42'")["active"] == 0
+
+
+def test_daily_digest_job(bot, monkeypatch):
+    c, _app, bot_mod, sent = bot
+    tg(c, bot_mod, "/start", chat=1)
+    tg(c, bot_mod, "/start", chat=2)
+    sent.clear()
+    monkeypatch.setenv("GEMINI_API_KEY", "k")
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.setitem(
+        analyze.PROVIDERS,
+        "gemini",
+        lambda *a: (
+            '{"items": [{"n": 1, "emoji": "⚡", "title": "Gaz kelishuvi <b>", "essence": "Xitoy bozori kengaymoqda."}, {"n": 99}]}',
+            "m",
+        ),
+    )
+    r = c.post("/cron/digest", headers={"x-cron-token": "cron-secret"}).json()
+    assert r["sent"] == 2 and r["model"] == "m"
+    body = texts(sent)[0]
+    assert "⚡ <b>Gaz kelishuvi &lt;b&gt;</b>" in body and "Xitoy bozori" in body and 'href="https://' in body
+    assert c.post("/cron/digest", headers={"x-cron-token": "cron-secret"}).json() == {
+        "skipped": "bugungi digest allaqachon yuborilgan"
+    }
+    tg(c, bot_mod, "/bugun", chat=1)
+    assert "Gaz kelishuvi" in texts(sent)[-1]
+
+
+def test_digest_without_ai_sends_headlines(bot, monkeypatch):
+    c, _app, bot_mod, sent = bot
+    tg(c, bot_mod, "/start")
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    r = c.post("/cron/digest?force=1", headers={"x-cron-token": "cron-secret"}).json()
+    assert r["sent"] == 1 and "AI o'chiq" in texts(sent)[-1]
+
+
+def test_weekly_job_alerts_when_relationship_moves(bot, monkeypatch):
+    import json as _json
+
+    import pairs
+
+    c, app_mod, bot_mod, sent = bot
+
+    async def no_news(a, b):
+        return []
+
+    monkeypatch.setattr(pairs, "pair_news", no_news)
+    monkeypatch.setattr(app_mod.facts, "pair_facts", fake_facts)
+    monkeypatch.setenv("GEMINI_API_KEY", "k")
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    worse = _json.loads(PAIR_JSON) | {
+        "score": -1,
+        "label": "Sovuqlashuv",
+        "previous_check": {"unfolding": "Yomon", "verdict": "v", "change": "Vizalar to'xtatildi."},
+    }
+    replies = iter([PAIR_JSON, _json.dumps(worse | {"score": 1}), _json.dumps(worse)])
+    monkeypatch.setitem(analyze.PROVIDERS, "gemini", lambda *a: (next(replies), "m"))
+    tg(c, bot_mod, "/kuzat UZB AUS")
+    sent.clear()
+    cron = {"x-cron-token": "cron-secret"}
+    r = c.post("/cron/weekly", headers=cron).json()
+    assert r["analysed"] == ["AUS-UZB-uz"] and "Birinchi tahlil tayyor" in texts(sent)[-1]
+    sent.clear()
+    assert c.post("/cron/weekly", headers=cron).json()["alerts"] == 0  # +2 → +1: small move, no alert
+    r = c.post("/cron/weekly", headers=cron).json()  # +1 → -1: alert
+    assert r["alerts"] == 1
+    alert = texts(sent)[-1]
+    assert "munosabat o'zgardi" in alert and "+1" in alert and "<b>-1</b>" in alert and "Vizalar to'xtatildi" in alert
+    import db
+
+    assert [h["score"] for h in db.rows("SELECT score FROM pair_history ORDER BY id")] == [2, 1, -1]
+
+
+def test_resolve_country_words():
+    import telegram_bot
+
+    assert telegram_bot.resolve("uzb") == "UZB" and telegram_bot.resolve("O‘zbekiston") == "UZB"
+    assert telegram_bot.resolve("AQSh") == "USA" and telegram_bot.resolve("United States") == "USA"
+    assert telegram_bot._two_countries("Janubiy Koreya Yaponiya") == ("KOR", "JPN")
+    assert telegram_bot.resolve("Atlantida") is None
+
+
+def test_meaning_vectors_join_languages_but_not_different_stories():
+    import embed
+
+    base = {"published": NOW.isoformat(), "categories": []}
+    v = lambda *xs: embed.pack(list(xs) + [0.0] * (embed.DIM - len(xs)))  # noqa: E731
+    arts = [
+        base
+        | {
+            "title": "World Bank approves $800 million for Uzbekistan",
+            "publisher": "Reuters",
+            "countries": ["UZB"],
+            "lang": "en",
+            "emb": v(1, 0.05),
+        },
+        base
+        | {
+            "title": "Всемирный банк одобрил 800 млн долларов Узбекистану",
+            "publisher": "Gazeta",
+            "countries": ["UZB"],
+            "lang": "ru",
+            "emb": v(1, 0.0),
+        },
+        base
+        | {
+            "title": "Uzbekistan raises central bank rate to 14%",
+            "publisher": "Spot",
+            "countries": ["UZB"],
+            "lang": "en",
+            "emb": v(1, 0.1),
+        },  # close in meaning, but the numbers disagree
+        base
+        | {
+            "title": "Россия и Украина обменялись ударами дронов",
+            "publisher": "BBC",
+            "countries": ["RUS", "UKR"],
+            "lang": "ru",
+            "emb": v(0, 1),
+        },
+    ]
+    groups = analyze.cluster(arts)
+    sizes = sorted(len(g) for g in groups)
+    assert sizes == [1, 1, 2]
+    pair = next(g for g in groups if len(g) == 2)
+    assert {a["publisher"] for a in pair} == {"Reuters", "Gazeta"} and pair[0]["lang"] == "en"
+    assert analyze.cluster([dict(a, emb=None) for a in arts])  # no vectors: token grouping only
+
+
+def test_refresh_stores_vectors(client, monkeypatch):
+    import embed
+
+    c, app_mod = client
+    monkeypatch.setenv("GEMINI_API_KEY", "k")
+    monkeypatch.setattr(embed, "embed", lambda texts: [[0.1] * embed.DIM for _ in texts])
+    import db
+
+    with db.tx() as conn:
+        conn.execute("UPDATE articles SET emb = NULL")
+    assert app_mod._embed_new() > 0
+    assert db.one("SELECT COUNT(*) n FROM articles WHERE emb IS NULL")["n"] == 0
+    assert "emb" not in c.get("/api/articles?hours=168").json()[0]
+
+
+def test_pair_page_shows_figures_before_any_analysis(client, monkeypatch):
+    c, app_mod = client
+    monkeypatch.setattr(app_mod.facts, "pair_facts", fake_facts)
+    t = c.get("/pair?a=UZB&b=AUS").text
+    assert "Hali AI tahlili yo" in t and "Raqamlarda" in t and "147.0 mlrd $" in t and "162.7 ming $" in t

@@ -127,6 +127,7 @@ CREATE TABLE IF NOT EXISTS ai_usage (
 
 MIGRATIONS = [
     "ALTER TABLE pairs ADD COLUMN c TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE articles ADD COLUMN emb TEXT",  # JSON meaning vector of the headline (embed.py)
 ]
 
 
