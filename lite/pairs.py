@@ -82,9 +82,10 @@ def valid(iso: str) -> bool:
     return iso in SOVEREIGN and iso in analyze.COUNTRY_INFO
 
 
-def key(a: str, b: str, lang: str) -> str:
+def key(a: str, b: str, lang: str, c: str = "") -> str:
+    """Cache key for a pair (order-free), or for a pair seen through a third country."""
     x, y = sorted((a, b))
-    return f"{x}-{y}-{lang}"
+    return f"{x}-{y}-{lang}" + (f"~{c}" if c else "")
 
 
 # ------------------------------------------------------------------ news for the pair
@@ -161,7 +162,8 @@ Return JSON only:
                 "trigger": "what would set it off", "outcome": "2-3 sentences: what it would lead to,
                 for each side and for the region"}}],
  "watch": ["short signal to watch", "..."],
- "data_note": "one sentence on how much fresh news there was and how that limits the analysis"
+ "data_note": "one sentence on how much fresh news there was and how that limits the analysis",
+ "numbers_note": "1-2 sentences: what the hard figures (if given) say about this relationship"{extra_fields}
 }}
 
 Lists: good 2-6, bad 1-6 (say honestly if there is little friction), areas exactly these five in this
@@ -169,7 +171,26 @@ order: Diplomatiya, Iqtisodiyot va savdo, Xavfsizlik, Energetika va resurslar, M
 (translate the area names into the output language), third_parties 0-3, scenarios exactly 3 (the most
 likely course, a better one, a worse one, with probabilities that make sense together), watch 2-4.
 Forecasts are reasoned scenarios, not certainties: base each on interests and trends you named.
+Hard figures (World Bank, UN Comtrade) may be given: use them for size, dependence and trade weight,
+say "Jahon banki" / "UN Comtrade" when you rely on one, and never invent other figures.
+{extra_rules}
 Write every text field in {lang}."""
+
+PREVIOUS_FIELD = """,
+ "previous_check": {"unfolding": "title of the earlier scenario closest to what is happening now",
+                    "verdict": "2-3 sentences: which earlier forecasts held, which did not, and why",
+                    "change": "one sentence on what changed since the earlier analysis"}"""
+PREVIOUS_RULE = """An earlier analysis of this pair is given with its date, score and scenarios. Judge it honestly
+against the news: fill previous_check, and move the score only if the news justifies it."""
+
+TRIANGLE_FIELD = """,
+ "triangle": {"summary": "2-3 sentences on how country C shapes the A-B relationship",
+              "a_c": {"score": -5..5, "note": "one sentence on A and C"},
+              "b_c": {"score": -5..5, "note": "one sentence on B and C"},
+              "who_benefits": "one sentence: which of the three gains most from the current pattern and why",
+              "leverage": "one sentence: who holds leverage over whom"}"""
+TRIANGLE_RULE = """A third country C is given: analyse the triangle too. Keep good/bad/areas/scenarios about A and B,
+but explain in them where C is the reason."""
 
 
 def _clean_pair(raw: dict, items: list[dict], a: str, b: str) -> dict:
@@ -197,10 +218,7 @@ def _clean_pair(raw: dict, items: list[dict], a: str, b: str) -> dict:
                 )
         return res
 
-    try:
-        score = max(-5, min(5, int(raw.get("score", 0))))
-    except (TypeError, ValueError):
-        score = 0
+    score = _score(raw.get("score", 0))
     states = {"positive", "mixed", "negative", "none"}
     probs = {"high", "medium", "low"}
     used = set()
@@ -259,14 +277,37 @@ def _clean_pair(raw: dict, items: list[dict], a: str, b: str) -> dict:
     return out
 
 
-def write_pair(a: str, b: str, lang: str, items: list[dict]) -> dict:
+def _score(v) -> int:
+    try:
+        return max(-5, min(5, int(v)))
+    except (TypeError, ValueError):
+        return 0
+
+
+def write_pair(
+    a: str, b: str, lang: str, items: list[dict], facts_text: str = "", previous: dict | None = None, c: str = ""
+) -> dict:
     ta, tb = tier(a), tier(b)
     head = (
         f"Country A: {analyze.COUNTRY_INFO[a]['name']} ({a}), {TIER_EN[ta]}.\n"
         f"Country B: {analyze.COUNTRY_INFO[b]['name']} ({b}), {TIER_EN[tb]}.\n"
     )
+    if c:
+        head += f"Country C (third party): {analyze.COUNTRY_INFO[c]['name']} ({c}), {TIER_EN[tier(c)]}.\n"
+    if facts_text:
+        head += f"\nHard figures:\n{facts_text}\n"
+    if previous:
+        scen = "; ".join(f"{x['title']} ({x['probability']})" for x in previous.get("scenarios", []))
+        head += (
+            f"\nEarlier analysis of {previous.get('created', '')[:10]}: score {previous.get('score')}, "
+            f"'{previous.get('label', '')}'. Its scenarios: {scen}.\n"
+        )
     news = "\n".join(analyze.numbered(items)) if items else "(no recent news mentioning both)"
-    system = PAIR_SYSTEM.format(lang=analyze.LANG_NAMES.get(lang, "English"))
+    system = PAIR_SYSTEM.format(
+        lang=analyze.LANG_NAMES.get(lang, "English"),
+        extra_fields=(PREVIOUS_FIELD if previous else "") + (TRIANGLE_FIELD if c else ""),
+        extra_rules="\n".join(r for r, on in ((PREVIOUS_RULE, previous), (TRIANGLE_RULE, c)) if on),
+    )
     prompt = f"{head}\nNews items:\n{news}\n\nReturn the JSON."
     for attempt in range(2):
         text, model = analyze.complete(system, prompt, json_mode=True)
@@ -277,5 +318,30 @@ def write_pair(a: str, b: str, lang: str, items: list[dict]) -> dict:
             if attempt == 1:
                 raise
     result = _clean_pair(raw, items, a, b)
+    result["numbers_note"] = str(raw.get("numbers_note", ""))[:500]
+    pc = raw.get("previous_check")
+    if previous and isinstance(pc, dict):
+        result["previous_check"] = {
+            "since": previous.get("created", "")[:10],
+            "old_score": previous.get("score"),
+            "unfolding": str(pc.get("unfolding", ""))[:160],
+            "verdict": str(pc.get("verdict", ""))[:800],
+            "change": str(pc.get("change", ""))[:300],
+        }
+    tri = raw.get("triangle")
+    if c and isinstance(tri, dict):
+
+        def side(k):
+            d = tri.get(k) if isinstance(tri.get(k), dict) else {}
+            return {"score": _score(d.get("score")), "note": str(d.get("note", ""))[:300]}
+
+        result["triangle"] = {
+            "c": c,
+            "summary": str(tri.get("summary", ""))[:800],
+            "a_c": side("a_c"),
+            "b_c": side("b_c"),
+            "who_benefits": str(tri.get("who_benefits", ""))[:300],
+            "leverage": str(tri.get("leverage", ""))[:300],
+        }
     result.update(model=model, news_count=len(items))
     return result

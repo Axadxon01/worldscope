@@ -62,9 +62,10 @@ CREATE TABLE IF NOT EXISTS maps (
     data        TEXT NOT NULL           -- JSON {summary, links}
 );
 CREATE TABLE IF NOT EXISTS pairs (
-    key         TEXT PRIMARY KEY,       -- "AAA-BBB-lang", codes sorted
+    key         TEXT PRIMARY KEY,       -- "AAA-BBB-lang", codes sorted, "~CCC" for a triangle
     a           TEXT NOT NULL,
     b           TEXT NOT NULL,
+    c           TEXT NOT NULL DEFAULT '',
     lang        TEXT NOT NULL,
     created     TEXT NOT NULL,
     data        TEXT NOT NULL           -- JSON analysis
@@ -79,11 +80,54 @@ CREATE TABLE IF NOT EXISTS briefs (
     body        TEXT NOT NULL,          -- markdown with [n] citations
     cites       TEXT NOT NULL           -- JSON list of {n, article_id, title, url, publisher}
 );
+CREATE TABLE IF NOT EXISTS pair_history (
+    id          INTEGER PRIMARY KEY,
+    key         TEXT NOT NULL,
+    created     TEXT NOT NULL,
+    score       INTEGER NOT NULL,
+    label       TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS pair_history_key ON pair_history (key, created);
+CREATE TABLE IF NOT EXISTS tg_subscribers (
+    chat_id     TEXT PRIMARY KEY,
+    created     TEXT NOT NULL,
+    active      INTEGER NOT NULL DEFAULT 1,
+    name        TEXT NOT NULL DEFAULT ''
+);
+CREATE TABLE IF NOT EXISTS tg_follows (
+    chat_id     TEXT NOT NULL,
+    key         TEXT NOT NULL,          -- pairs.key(a, b, lang)
+    a           TEXT NOT NULL,
+    b           TEXT NOT NULL,
+    lang        TEXT NOT NULL,
+    created     TEXT NOT NULL,
+    PRIMARY KEY (chat_id, key)
+);
+CREATE TABLE IF NOT EXISTS digests (
+    id          INTEGER PRIMARY KEY,
+    created     TEXT NOT NULL,
+    body        TEXT NOT NULL,          -- Telegram HTML
+    model       TEXT NOT NULL DEFAULT ''
+);
+CREATE TABLE IF NOT EXISTS meta (
+    key         TEXT PRIMARY KEY,
+    value       TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS cache (
+    key         TEXT PRIMARY KEY,       -- e.g. "wb:UZB" or "trade:AUS-UZB"
+    fetched     TEXT NOT NULL,
+    data        TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS ai_usage (
     day         TEXT PRIMARY KEY,       -- YYYY-MM-DD, UTC
     calls       INTEGER NOT NULL DEFAULT 0
 );
 """
+
+
+MIGRATIONS = [
+    "ALTER TABLE pairs ADD COLUMN c TEXT NOT NULL DEFAULT ''",
+]
 
 
 # ------------------------------------------------------------------ connections
@@ -155,14 +199,34 @@ def init(default_sources: list[dict]) -> None:
             c.execute(f"CREATE SCHEMA IF NOT EXISTS {PG_SCHEMA}")
     with tx() as c:
         c.executescript(script)
+    for stmt in MIGRATIONS:  # columns added after a table existed; each may already be there
+        try:
+            with tx() as c:
+                c.execute(stmt)
+        except Exception:  # "duplicate column" is worded differently by SQLite and Postgres
+            pass
+    with tx() as c:
         # Links must be web addresses; drop anything older code may have stored (e.g. javascript:).
         c.execute("DELETE FROM articles WHERE url NOT LIKE 'http://%' AND url NOT LIKE 'https://%'")
-        if c.execute("SELECT COUNT(*) AS n FROM sources").fetchone()["n"] == 0:
-            for s in default_sources:
-                c.execute(
-                    "INSERT INTO sources (kind, value, label, lang, enabled) VALUES (?,?,?,?,?) ON CONFLICT DO NOTHING",
-                    (s["kind"], s["value"], s["label"], s.get("lang", "en"), 1 if s.get("enabled", True) else 0),
-                )
+        # Add default sources this database has never been given. One the user deleted stays deleted.
+        row = c.execute("SELECT value FROM meta WHERE key = 'seeded'").fetchone()
+        seeded = set(json.loads(row["value"])) if row else set()
+        if not row and c.execute("SELECT COUNT(*) AS n FROM sources").fetchone()["n"] > 0:
+            # a database from before this bookkeeping: everything already there counts as seeded
+            seeded = {f"{r['kind']}|{r['value']}" for r in c.execute("SELECT kind, value FROM sources").fetchall()}
+        for s in default_sources:
+            k = f"{s['kind']}|{s['value']}"
+            if k in seeded:
+                continue
+            c.execute(
+                "INSERT INTO sources (kind, value, label, lang, enabled) VALUES (?,?,?,?,?) ON CONFLICT DO NOTHING",
+                (s["kind"], s["value"], s["label"], s.get("lang", "en"), 1 if s.get("enabled", True) else 0),
+            )
+            seeded.add(k)
+        c.execute(
+            "INSERT INTO meta (key, value) VALUES ('seeded', ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value",
+            (json.dumps(sorted(seeded)),),
+        )
 
 
 def rows(sql: str, params: tuple | list = ()) -> list[dict]:
@@ -188,3 +252,25 @@ def loads(value: str | None) -> list:
         return json.loads(value or "[]")
     except ValueError:
         return []
+
+
+def cache_get(key: str, max_age_days: float) -> dict | list | None:
+    from datetime import UTC, datetime, timedelta
+
+    row = one("SELECT fetched, data FROM cache WHERE key = ?", (key,))
+    if not row:
+        return None
+    if datetime.fromisoformat(row["fetched"]) < datetime.now(UTC) - timedelta(days=max_age_days):
+        return None
+    return json.loads(row["data"])
+
+
+def cache_put(key: str, data) -> None:
+    from datetime import UTC, datetime
+
+    with tx() as c:
+        c.execute(
+            "INSERT INTO cache (key, fetched, data) VALUES (?,?,?) "
+            "ON CONFLICT (key) DO UPDATE SET fetched = excluded.fetched, data = excluded.data",
+            (key, datetime.now(UTC).replace(microsecond=0).isoformat(), json.dumps(data, ensure_ascii=False)),
+        )

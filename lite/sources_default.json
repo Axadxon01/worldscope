@@ -14,5 +14,13 @@
   {"kind": "rss", "label": "President of Russia: events", "lang": "en", "value": "http://en.kremlin.ru/events/all/feed"},
   {"kind": "rss", "label": "UK FCDO", "lang": "en", "value": "https://www.gov.uk/government/organisations/foreign-commonwealth-development-office.atom"},
   {"kind": "rss", "label": "CISA advisories", "lang": "en", "value": "https://www.cisa.gov/cybersecurity-advisories/all.xml", "enabled": false},
-  {"kind": "rss", "label": "US EIA: Today in Energy", "lang": "en", "value": "https://www.eia.gov/rss/todayinenergy.xml"}
+  {"kind": "rss", "label": "US EIA: Today in Energy", "lang": "en", "value": "https://www.eia.gov/rss/todayinenergy.xml"},
+  {"kind": "rss", "label": "Kun.uz", "lang": "uz", "value": "https://kun.uz/news/rss"},
+  {"kind": "rss", "label": "Kun.uz (EN)", "lang": "en", "value": "https://kun.uz/en/news/rss"},
+  {"kind": "rss", "label": "Gazeta.uz", "lang": "uz", "value": "https://www.gazeta.uz/oz/rss/"},
+  {"kind": "rss", "label": "UzA", "lang": "uz", "value": "https://uza.uz/rss"},
+  {"kind": "rss", "label": "Daryo", "lang": "uz", "value": "https://daryo.uz/feed/"},
+  {"kind": "rss", "label": "Spot.uz", "lang": "ru", "value": "https://www.spot.uz/ru/rss/"},
+  {"kind": "rss", "label": "Podrobno.uz", "lang": "ru", "value": "https://podrobno.uz/rss/"},
+  {"kind": "rss", "label": "UzDaily (EN)", "lang": "en", "value": "https://www.uzdaily.uz/en/rss"}
 ]

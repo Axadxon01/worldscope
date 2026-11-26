@@ -27,6 +27,7 @@ from markupsafe import Markup, escape
 import analyze
 import collectors
 import db
+import facts
 import pairs
 
 HERE = Path(__file__).parent
@@ -278,6 +279,7 @@ templates.env.globals.update(
     state=state,
     ai_used_today=ai_used_today,
     ai_limit=lambda: AI_DAILY_LIMIT,
+    fmt_usd=lambda v: facts.human(v, "usd"),
     db_where=db.describe,
 )
 
@@ -474,21 +476,83 @@ def _pair_db_news(a: str, b: str) -> list[dict]:
     return [x for x in _articles(KEEP_DAYS * 24, country=a) if b in x["countries"]][:20]
 
 
+def _pair_row(k: str) -> dict | None:
+    row = db.one("SELECT * FROM pairs WHERE key=?", (k,))
+    if not row:
+        return None
+    data = json.loads(row["data"])
+    data["created"] = row["created"]
+    return data
+
+
+def _history(k: str) -> list[dict]:
+    return db.rows("SELECT created, score, label FROM pair_history WHERE key = ? ORDER BY created", (k,))
+
+
+async def analyze_pair(a: str, b: str, lang: str, c: str = "") -> tuple[dict, dict | None]:
+    """News + hard figures + the AI, stored with its history. Returns (new, previous)."""
+    k = pairs.key(a, b, lang, c)
+    previous = await asyncio.to_thread(_pair_row, k)
+    fetched = await pairs.pair_news(a, b)
+    if c:  # what is said about each side with the third country
+        fetched += (await pairs.pair_news(a, c))[:10] + (await pairs.pair_news(b, c))[:10]
+    items = pairs.merge_news(await asyncio.to_thread(_pair_db_news, a, b), fetched, limit=55 if c else 45)
+    names = {x: analyze.display_name(x) for x in (a, b)}
+    try:
+        f = await facts.pair_facts(a, b)
+        facts_text = facts.prompt_block(f, a, b, names)
+    except Exception:  # the figures are a bonus; never fail the analysis over them
+        log.exception("facts failed")
+        f, facts_text = {"countries": {}, "trade": None}, ""
+    label = f"{names[a]} ↔ {names[b]}" + (f" ({analyze.display_name(c)})" if c else "")
+    result = await run_ai(label, pairs.write_pair, a, b, lang, items, facts_text, previous, c)
+    result["facts"] = {"rows": facts.rows_for(f, a, b), "trade": f.get("trade")}
+    stamp = collectors.now_iso()
+    with db.tx() as conn:
+        conn.execute(
+            "INSERT INTO pairs (key, a, b, c, lang, created, data) VALUES (?,?,?,?,?,?,?) "
+            "ON CONFLICT (key) DO UPDATE SET created = excluded.created, data = excluded.data",
+            (k, a, b, c, lang, stamp, analyze.dumps(result)),
+        )
+        conn.execute(
+            "INSERT INTO pair_history (key, created, score, label) VALUES (?,?,?,?)",
+            (k, stamp, result["score"], result["label"]),
+        )
+    return result, previous
+
+
+def _spark(history: list[dict], w: int = 260, h: int = 54) -> list[dict]:
+    """Points of a small score chart (-5..5), oldest left."""
+    if not history:
+        return []
+    n = len(history)
+    out = []
+    for i, p in enumerate(history):
+        x = 8 + (w - 16) * (i / (n - 1) if n > 1 else 0.5)
+        y = 6 + (h - 12) * (5 - p["score"]) / 10
+        out.append(
+            {"x": round(x, 1), "y": round(y, 1), "score": p["score"], "date": p["created"][:10], "label": p["label"]}
+        )
+    return out
+
+
 @app.get("/pair", response_class=HTMLResponse)
-def pair_page(request: Request, a: str = "", b: str = "", lang: str = "uz", error: str = ""):
-    a, b = a.upper()[:3], b.upper()[:3]
+def pair_page(request: Request, a: str = "", b: str = "", c: str = "", lang: str = "uz", error: str = ""):
+    a, b, c = a.upper()[:3], b.upper()[:3], c.upper()[:3]
     lang = lang if lang in analyze.LANG_NAMES else "uz"
-    result = None
+    if c and (not pairs.valid(c) or c in (a, b)):
+        c = ""
+    result, history = None, []
     if pairs.valid(a) and pairs.valid(b) and a != b:
-        row = db.one("SELECT * FROM pairs WHERE key=?", (pairs.key(a, b, lang),))
-        if row:
-            result = json.loads(row["data"])
-            result["created"] = row["created"]
-    recent = db.rows("SELECT a, b, lang, created FROM pairs ORDER BY created DESC LIMIT 12")
+        k = pairs.key(a, b, lang, c)
+        result = _pair_row(k)
+        history = _history(k)
+    recent = db.rows("SELECT a, b, c, lang, created FROM pairs ORDER BY created DESC LIMIT 12")
     coords = {k: [round(v["lat"], 2), round(v["lon"], 2)] for k, v in analyze.COUNTRY_INFO.items()}
     payload = {
         "a": a,
         "b": b,
+        "c": c,
         "coords": coords,
         "geo": {v["name"]: k for k, v in analyze.COUNTRY_INFO.items() if pairs.valid(k)},
         "names": {k: analyze.display_name(k) for k in pairs.SOVEREIGN if k in analyze.COUNTRY_INFO},
@@ -500,9 +564,11 @@ def pair_page(request: Request, a: str = "", b: str = "", lang: str = "uz", erro
         {
             "a": a,
             "b": b,
+            "c": c,
             "lang": lang,
             "error": error,
             "result": result,
+            "spark": _spark(history),
             "recent": recent,
             "options": pairs.country_options(),
             "TIERS": pairs.TIERS,
@@ -517,34 +583,26 @@ def pair_page(request: Request, a: str = "", b: str = "", lang: str = "uz", erro
 
 
 @app.post("/pair")
-async def make_pair(a: str = Form(...), b: str = Form(...), lang: str = Form("uz")):
-    a, b = a.upper()[:3], b.upper()[:3]
+async def make_pair(a: str = Form(...), b: str = Form(...), c: str = Form(""), lang: str = Form("uz")):
+    a, b, c = a.upper()[:3], b.upper()[:3], c.upper()[:3]
     lang = lang if lang in analyze.LANG_NAMES else "uz"
-    back = f"/pair?a={a}&b={b}&lang={lang}"
+    back = f"/pair?a={a}&b={b}&lang={lang}" + (f"&c={c}" if c else "")
     if not (pairs.valid(a) and pairs.valid(b)) or a == b:
         return RedirectResponse(back + "&error=" + quote_plus("Ikki xil davlatni tanlang"), 303)
+    if c and (not pairs.valid(c) or c in (a, b)):
+        return RedirectResponse(back + "&error=" + quote_plus("Uchinchi davlat A va B dan farq qilishi kerak"), 303)
     if not analyze.ai_available():
         return RedirectResponse(back + "&error=" + quote_plus("AI kaliti o'rnatilmagan"), 303)
     if _ai_lock.locked():  # say so before spending time on the news search
         return RedirectResponse(back + "&error=" + quote_plus(busy_message()), 303)
-    fetched = await pairs.pair_news(a, b)
-    items = pairs.merge_news(_pair_db_news(a, b), fetched)
     try:
-        result = await run_ai(
-            f"{analyze.display_name(a)} ↔ {analyze.display_name(b)}", pairs.write_pair, a, b, lang, items
-        )
+        await analyze_pair(a, b, lang, c)
     except analyze.AIError as e:
         log.warning("pair failed: %s", e)
         return RedirectResponse(back + "&error=" + quote_plus(str(e)), 303)
     except Exception as e:  # show something useful instead of a 500
         log.exception("pair failed")
         return RedirectResponse(back + "&error=" + quote_plus(f"AI xatosi: {type(e).__name__}"), 303)
-    with db.tx() as c:
-        c.execute(
-            "INSERT INTO pairs (key, a, b, lang, created, data) VALUES (?,?,?,?,?,?) "
-            "ON CONFLICT (key) DO UPDATE SET created = excluded.created, data = excluded.data",
-            (pairs.key(a, b, lang), a, b, lang, collectors.now_iso(), analyze.dumps(result)),
-        )
     return RedirectResponse(back, 303)
 
 

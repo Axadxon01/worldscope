@@ -509,10 +509,23 @@ PAIR_JSON = """{"score": 2, "label": "Uzoq, lekin do'stona", "essence": "Avstral
  "watch": ["w1"], "data_note": "kam xabar"}"""
 
 
+FACTS = {
+    "countries": {
+        "AUS": {"NY.GDP.MKTP.CD": {"value": 1.8e12, "year": "2025"}},
+        "UZB": {"NY.GDP.MKTP.CD": {"value": 1.47e11, "year": "2025"}},
+    },
+    "trade": {"year": "2024", "a_to_b": 162_700.0, "b_to_a": 1_200_000.0},
+}
+
+
+async def fake_facts(a, b):
+    return FACTS
+
+
 def test_pair_page_flow(client, monkeypatch):
     import pairs
 
-    c, _ = client
+    c, app_mod = client
     r = c.get("/pair")
     assert r.status_code == 200 and "Qudratli davlatlar" in r.text and "Madagascar" in r.text
     assert c.get("/pair?a=UZB&b=AUS").status_code == 200
@@ -523,6 +536,7 @@ def test_pair_page_flow(client, monkeypatch):
         ]
 
     monkeypatch.setattr(pairs, "pair_news", fake_news)
+    monkeypatch.setattr(app_mod.facts, "pair_facts", fake_facts)
     monkeypatch.setenv("GEMINI_API_KEY", "k")
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     seen = {}
@@ -621,3 +635,97 @@ def test_ai_daily_limit_and_single_job(client, monkeypatch):
                 await app_mod.run_ai("x", lambda: None)
 
     asyncio.run(busy())
+
+
+def test_new_default_sources_reach_old_databases_but_deleted_stay_deleted(tmp_path, monkeypatch):
+    use_test_db(monkeypatch, tmp_path, "seed")
+    sys.modules.pop("db", None)
+    import db
+
+    db.init(
+        [
+            {"kind": "rss", "value": "https://a/rss", "label": "A"},
+            {"kind": "rss", "value": "https://b/rss", "label": "B"},
+        ]
+    )
+    with db.tx() as c:
+        c.execute("DELETE FROM sources WHERE value = ?", ("https://b/rss",))
+    db.init(
+        [
+            {"kind": "rss", "value": "https://a/rss", "label": "A"},
+            {"kind": "rss", "value": "https://b/rss", "label": "B"},
+            {"kind": "rss", "value": "https://c/rss", "label": "C", "enabled": False},
+        ]
+    )
+    got = {r["value"]: r["enabled"] for r in db.rows("SELECT value, enabled FROM sources")}
+    assert got == {"https://a/rss": 1, "https://c/rss": 0}
+    db.cache_put("k", {"x": 1})
+    assert db.cache_get("k", 1) == {"x": 1} and db.cache_get("nope", 1) is None
+
+
+def test_pair_history_previous_check_and_triangle(client, monkeypatch):
+    import pairs
+
+    c, app_mod = client
+
+    async def no_news(a, b):
+        return []
+
+    monkeypatch.setattr(pairs, "pair_news", no_news)
+    monkeypatch.setattr(app_mod.facts, "pair_facts", fake_facts)
+    monkeypatch.setenv("GEMINI_API_KEY", "k")
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    prompts = []
+    import json as _json
+
+    second = _json.loads(PAIR_JSON)
+    second.update(
+        score=4,
+        previous_check={"unfolding": "Asosiy", "verdict": "Asosiy ssenariy amalga oshmoqda.", "change": "c"},
+        triangle={
+            "summary": "Xitoy omili",
+            "a_c": {"score": 3, "note": "n"},
+            "b_c": {"score": "x", "note": "n"},
+            "who_benefits": "w",
+            "leverage": "l",
+        },
+    )
+    replies = iter([PAIR_JSON, _json.dumps(second), _json.dumps(second)])
+
+    def fake_ai(system, prompt, json_mode=False):
+        prompts.append((system, prompt))
+        return next(replies), "m"
+
+    monkeypatch.setitem(analyze.PROVIDERS, "gemini", fake_ai)
+    c.post("/pair", data={"a": "UZB", "b": "AUS", "lang": "uz"})
+    assert "Hard figures" in prompts[0][1] and "1.8 trln $" in prompts[0][1] and "previous_check" not in prompts[0][0]
+    t = c.post("/pair", data={"a": "AUS", "b": "UZB", "lang": "uz"}).text  # same pair, reversed
+    assert (
+        "Earlier analysis of" in prompts[1][1]
+        and "Asosiy (high)" in prompts[1][1]
+        and "previous_check" in prompts[1][0]
+    )
+    assert "Oldingi bashorat tekshiruvi" in t and "Asosiy ssenariy amalga oshmoqda" in t
+    assert "Munosabat tarixi" in t and "<polyline" in t
+    assert "Raqamlarda" in t and "162.7 ming $" in t and "1.2 mln $" in t
+    t = c.post("/pair", data={"a": "UZB", "b": "AUS", "c": "CHN", "lang": "uz"}).text
+    assert "Country C (third party)" in prompts[2][1] and "triangle" in prompts[2][0]
+    assert "Uchburchak" in t and "Xitoy omili" in t
+    assert (
+        "Ikki xil" in c.post("/pair", data={"a": "UZB", "b": "AUS", "c": "UZB"}).text
+        or "farq" in c.post("/pair", data={"a": "UZB", "b": "AUS", "c": "UZB"}).text
+    )
+
+
+def test_facts_helpers():
+    import facts
+
+    assert (
+        facts.human(1.8e12, "usd") == "1.8 trln $"
+        and facts.human(14.36, "pct") == "14.4%"
+        and facts.human(None, "usd") == "—"
+    )
+    rows = facts.rows_for(FACTS, "UZB", "AUS")
+    assert rows[0]["a"] == "147.0 mlrd $" and rows[0]["b"] == "1.8 trln $"
+    block = facts.prompt_block(FACTS, "UZB", "AUS", {"UZB": "O'zbekiston", "AUS": "Avstraliya"})
+    assert "O'zbekiston→Avstraliya 162.7 ming $" in block

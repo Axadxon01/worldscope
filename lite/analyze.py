@@ -863,6 +863,47 @@ UZ_NAMES = {
 }
 
 
+UZ_NAMES.update(
+    {
+        "MDG": "Madagaskar",
+        "KEN": "Keniya",
+        "MAR": "Marokash",
+        "DZA": "Jazoir",
+        "TUN": "Tunis",
+        "CUB": "Kuba",
+        "AUT": "Avstriya",
+        "DNK": "Daniya",
+        "IRL": "Irlandiya",
+        "PRT": "Portugaliya",
+        "CZE": "Chexiya",
+        "SVK": "Slovakiya",
+        "BGR": "Bolgariya",
+        "HRV": "Xorvatiya",
+        "LTU": "Litva",
+        "LVA": "Latviya",
+        "EST": "Estoniya",
+        "ISL": "Islandiya",
+        "NZL": "Yangi Zelandiya",
+        "PHL": "Filippin",
+        "THA": "Tailand",
+        "SGP": "Singapur",
+        "NPL": "Nepal",
+        "LKA": "Shri-Lanka",
+        "MMR": "Myanma",
+        "KHM": "Kambodja",
+        "LAO": "Laos",
+        "CHL": "Chili",
+        "COL": "Kolumbiya",
+        "PER": "Peru",
+        "TZA": "Tanzaniya",
+        "GHA": "Gana",
+        "AGO": "Angola",
+        "COD": "KDR (Kongo)",
+        "VAT": "Vatikan",
+    }
+)
+
+
 def display_name(iso: str, lang: str = "uz") -> str:
     info = COUNTRY_INFO.get(iso, {})
     return (UZ_NAMES.get(iso) if lang == "uz" else None) or info.get("name", iso)

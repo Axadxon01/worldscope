@@ -1,13 +1,13 @@
 {% extends "base.html" %}
-{% block title %}{% if result %}{{ name(a) }} ↔ {{ name(b) }} · {% endif %}Ikki davlat · WorldScope Lite{% endblock %}
+{% block title %}{% if result %}{{ name(a) }} ↔ {{ name(b) }}{% if c %} ({{ name(c) }}){% endif %} · {% endif %}Ikki davlat · WorldScope Lite{% endblock %}
 {% block head %}
 <link rel="stylesheet" href="/static/leaflet/leaflet.css">
 <script src="/static/leaflet/leaflet.js"></script>
 <script src="/static/world/topojson-client.min.js"></script>
 {% endblock %}
-{% macro picker(field, current) %}
-<select name="{{ field }}" id="sel-{{ field }}" required>
-  <option value="">— davlat —</option>
+{% macro picker(field, current, optional=False) %}
+<select name="{{ field }}" id="sel-{{ field }}" {{ '' if optional else 'required' }}>
+  <option value="">{{ '— yo\'q —' if optional else '— davlat —' }}</option>
   {% for t, label in TIERS.items() %}
   <optgroup label="{{ label }}">
     {% for o in options if o.tier == t %}
@@ -25,10 +25,11 @@
     <div class="pick a"><span class="tag">A</span>{{ picker('a', a) }}</div>
     <button type="button" class="ghost" id="swap" title="Almashtirish">⇄</button>
     <div class="pick b"><span class="tag">B</span>{{ picker('b', b) }}</div>
+    <div class="pick c" title="Ixtiyoriy: uchinchi davlat A–B munosabatiga qanday ta'sir qiladi"><span class="tag">C</span>{{ picker('c', c, True) }}</div>
     <select name="lang" title="Til"><option value="uz" {{ 'selected' if lang=='uz' }}>O'zbekcha</option><option value="ru" {{ 'selected' if lang=='ru' }}>Русский</option><option value="en" {{ 'selected' if lang=='en' }}>English</option></select>
     <button id="go" {{ 'disabled' if not ai }}>{{ 'Qayta tahlil' if result else 'Tahlil qilish' }}</button>
   </div>
-  <p class="muted small" id="hint">Ro'yxatdan tanlang yoki xaritada ikki davlatni ketma-ket bosing. 196 davlat uch guruhda: qudratli, o'rta va rivojlanayotgan.</p>
+  <p class="muted small" id="hint">Ro'yxatdan tanlang yoki xaritada ikki davlatni ketma-ket bosing. 196 davlat uch guruhda: qudratli, o'rta va rivojlanayotgan. C ixtiyoriy: uchinchi davlat bu munosabatga qanday ta'sir qilishini ko'rsatadi (uchburchak tahlili).</p>
   <p class="muted small" id="wait" hidden>Yangiliklar qidirilmoqda va AI tahlil yozmoqda: 20–90 soniya…</p>
   {% if not ai %}<p class="warn">AI o'chiq: serverda GEMINI_API_KEY yoki ANTHROPIC_API_KEY kerak.</p>{% endif %}
   {% if error %}<p class="warn">{{ error }}</p>{% endif %}
@@ -52,6 +53,60 @@
   <div class="essence big">💡 {{ r.essence|cites(r.sources) }}</div>
   <p class="psum">{{ r.summary|cites(r.sources) }}</p>
   {% if r.asymmetry %}<p class="asym"><b>Kuchlar nisbati:</b> {{ r.asymmetry|cites(r.sources) }}</p>{% endif %}
+
+  {% if r.previous_check %}{% set pc = r.previous_check %}
+  <div class="prevcheck">
+    <h3>Oldingi bashorat tekshiruvi <span class="muted small">({{ pc.since }} dagi tahlil: {{ '%+d'|format(pc.old_score|int) }} → hozir {{ '%+d'|format(r.score) }})</span></h3>
+    {% if pc.unfolding %}<p><b>Amalga oshayotgan ssenariy:</b> {{ pc.unfolding }}</p>{% endif %}
+    <p>{{ pc.verdict|cites(r.sources) }}</p>
+    {% if pc.change %}<p class="muted">{{ pc.change|cites(r.sources) }}</p>{% endif %}
+  </div>
+  {% endif %}
+
+  {% if spark|length > 1 %}
+  <div class="history">
+    <h3>Munosabat tarixi</h3>
+    <svg viewBox="0 0 260 54" width="100%" height="70" preserveAspectRatio="none" role="img" aria-label="Ball tarixi">
+      <line x1="0" x2="260" y1="27" y2="27" class="zero"/>
+      <polyline points="{% for p in spark %}{{ p.x }},{{ p.y }} {% endfor %}" class="line"/>
+      {% for p in spark %}<circle cx="{{ p.x }}" cy="{{ p.y }}" r="3"><title>{{ p.date }}: {{ '%+d'|format(p.score) }} {{ p.label }}</title></circle>{% endfor %}
+    </svg>
+    <p class="muted small">{{ spark[0].date }} dan {{ spark[-1].date }} gacha, {{ spark|length }} ta tahlil. Haftalik avtomatik yangilanadi, agar juftlik Telegram'da kuzatilsa.</p>
+  </div>
+  {% endif %}
+
+  {% if r.facts and (r.facts.rows or r.facts.trade) %}
+  <h3>Raqamlarda</h3>
+  <table class="facts">
+    <thead><tr><th></th><th>{{ name(a) }}</th><th>{{ name(b) }}</th></tr></thead>
+    <tbody>
+    {% for row in r.facts.rows %}
+      <tr><td>{{ row.label }}</td><td>{{ row.a }} <span class="yr">{{ row.a_year }}</span></td><td>{{ row.b }} <span class="yr">{{ row.b_year }}</span></td></tr>
+    {% endfor %}
+    {% set t = r.facts.trade %}
+    {% if t %}
+      <tr class="trade"><td>Tovar eksporti ({{ t.year }})</td>
+        <td>{{ name(a) }} → {{ name(b) }}: <b>{{ fmt_usd(t.a_to_b) }}</b></td>
+        <td>{{ name(b) }} → {{ name(a) }}: <b>{{ fmt_usd(t.b_to_a) }}</b></td></tr>
+    {% endif %}
+    </tbody>
+  </table>
+  <p class="muted small">Manba: Jahon banki (oxirgi mavjud yil), UN Comtrade. {% if not r.facts.trade %}Ikki tomonlama savdo bo'yicha so'nggi yillar uchun raqam topilmadi.{% endif %}</p>
+  {% if r.numbers_note %}<p class="asym"><b>Raqamlar nima deydi:</b> {{ r.numbers_note|cites(r.sources) }}</p>{% endif %}
+  {% endif %}
+
+  {% if r.triangle %}{% set tr = r.triangle %}
+  <div class="triangle">
+    <h3>Uchburchak: {{ name(a) }} – {{ name(b) }} – {{ name(tr.c) }}</h3>
+    <p>{{ tr.summary|cites(r.sources) }}</p>
+    <div class="tri3">
+      <div><b>{{ name(a) }} ↔ {{ name(tr.c) }}</b> <span class="sc{{ 'pos' if tr.a_c.score > 1 else 'neg' if tr.a_c.score < -1 else 'mid' }}">{{ '%+d'|format(tr.a_c.score) }}</span><p>{{ tr.a_c.note|cites(r.sources) }}</p></div>
+      <div><b>{{ name(b) }} ↔ {{ name(tr.c) }}</b> <span class="sc{{ 'pos' if tr.b_c.score > 1 else 'neg' if tr.b_c.score < -1 else 'mid' }}">{{ '%+d'|format(tr.b_c.score) }}</span><p>{{ tr.b_c.note|cites(r.sources) }}</p></div>
+    </div>
+    {% if tr.who_benefits %}<p><b>Kim yutadi:</b> {{ tr.who_benefits|cites(r.sources) }}</p>{% endif %}
+    {% if tr.leverage %}<p><b>Ta'sir richagi:</b> {{ tr.leverage|cites(r.sources) }}</p>{% endif %}
+  </div>
+  {% endif %}
 
   <div class="gb">
     <div class="col good"><h3>✓ Yaxshi tomonlari</h3>
@@ -97,14 +152,14 @@
 
 {% if recent %}
 <div class="recent small"><b>Oxirgi tahlillar:</b>
-  {% for p in recent %}<a href="/pair?a={{ p.a }}&b={{ p.b }}&lang={{ p.lang }}">{{ name(p.a) }} ↔ {{ name(p.b) }}</a>{% if not loop.last %} · {% endif %}{% endfor %}
+  {% for p in recent %}<a href="/pair?a={{ p.a }}&b={{ p.b }}&lang={{ p.lang }}{% if p.c %}&c={{ p.c }}{% endif %}">{{ name(p.a) }} ↔ {{ name(p.b) }}{% if p.c %} ({{ name(p.c) }}){% endif %}</a>{% if not loop.last %} · {% endif %}{% endfor %}
 </div>
 {% endif %}
 
 <script>
 const P = {{ payload }};
 const dark = matchMedia("(prefers-color-scheme: dark)").matches;
-const selA = document.getElementById("sel-a"), selB = document.getElementById("sel-b");
+const selA = document.getElementById("sel-a"), selB = document.getElementById("sel-b"), selC = document.getElementById("sel-c");
 const map = L.map("pmap", {minZoom: 1.5, maxZoom: 6, zoomSnap: 0.5, worldCopyJump: false, maxBounds: [[-75, -250], [85, 250]]})
   .setView([30, 40], 2);
 map.attributionControl.setPrefix(false).addAttribution('Chegaralar: <a href="https://www.naturalearthdata.com/">Natural Earth</a>');
@@ -113,6 +168,7 @@ let shapes, arcLine = null, nextPick = "a";
 function fill(iso) {
   if (iso && iso === selA.value) return "#3b82f6";
   if (iso && iso === selB.value) return "#f97316";
+  if (iso && iso === selC.value) return "#16a34a";
   return dark ? "#1e293b" : "#f8fafc";
 }
 function redraw() {
@@ -153,10 +209,11 @@ fetch(new URL("/static/world/countries-110m.json", location.origin)).then(r => r
   }).addTo(map);
   redraw();
 });
-selA.onchange = selB.onchange = redraw;
+selA.onchange = selB.onchange = selC.onchange = redraw;
 document.getElementById("swap").onclick = () => { [selA.value, selB.value] = [selB.value, selA.value]; redraw(); };
 document.getElementById("pairform").onsubmit = e => {
   if (selA.value === selB.value) { e.preventDefault(); alert("Ikki xil davlatni tanlang"); return; }
+  if (selC.value && (selC.value === selA.value || selC.value === selB.value)) { e.preventDefault(); alert("C boshqa davlat bo'lishi kerak"); return; }
   document.getElementById("go").disabled = true; document.getElementById("wait").hidden = false;
 };
 </script>

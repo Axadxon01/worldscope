@@ -193,3 +193,20 @@ button.small, .small button { padding: 2px 8px; font-size: 12.5px; }
 .small2 .col h3 { color: var(--ink); }
 .recent { margin-top: 20px; color: var(--muted); }
 .gb .col.good, .gb .col.bad { color: var(--ink); }
+
+.pick.c .tag { background: #16a34a; }
+.prevcheck, .history, .triangle { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 4px 16px 10px; margin-top: 14px; }
+.prevcheck { border-left: 4px solid #6366f1; }
+.history svg .zero { stroke: var(--line); stroke-dasharray: 3 3; }
+.history svg .line { fill: none; stroke: #6366f1; stroke-width: 2; }
+.history svg circle { fill: #6366f1; }
+table.facts { width: 100%; border-collapse: collapse; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; font-size: 14px; }
+.facts th, .facts td { text-align: left; padding: 7px 12px; border-bottom: 1px solid var(--line); }
+.facts th { font-size: 12.5px; color: var(--muted); }
+.facts .yr { font-size: 11px; color: var(--muted); }
+.facts tr.trade td { background: var(--bg); }
+.tri3 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.tri3 > div { background: var(--bg); border-radius: 8px; padding: 6px 10px; }
+.tri3 p { margin: 4px 0 0; font-size: 13.5px; }
+.scpos { color: var(--good); font-weight: 700; } .scneg { color: var(--bad); font-weight: 700; } .scmid { color: var(--muted); font-weight: 700; }
+@media (max-width: 700px) { .tri3 { grid-template-columns: 1fr; } }
