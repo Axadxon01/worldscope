@@ -714,21 +714,22 @@ def _gemini(system: str, prompt: str, json_mode: bool = False) -> tuple[str, str
                 if r.status_code < 400:
                     return _gemini_text(r.json()), model
                 last = _gemini_error(r)
-                if r.status_code not in (404, 500, 503):
-                    break  # bad key or quota: another model will not help
+                if r.status_code not in (404, 429, 500, 503):
+                    break  # a bad key fails the same way on every model
+                # busy, retired or out of free quota: on the free tier each model has its own quota
     except httpx.HTTPError as e:
         raise AIError(f"Gemini: ulanib bo'lmadi ({type(e).__name__})") from e
     raise AIError(last)
 
 
 def _fallback_order(ranked: list[str]) -> list[str]:
-    """Best model, then the best Flash-Lite (lighter, usually less loaded), then the runner-up."""
+    """Best model, then the best Flash-Lite (lighter, usually less loaded), then the runners-up."""
     order = ranked[:1]
     lite = next((m for m in ranked if "lite" in m), None)
     for m in [lite, *ranked[1:]]:
         if m and m not in order:
             order.append(m)
-        if len(order) == 3:
+        if len(order) == 4:
             break
     return order
 

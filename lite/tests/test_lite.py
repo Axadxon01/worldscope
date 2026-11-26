@@ -535,3 +535,20 @@ def test_pair_rejects_same_or_unknown_country(client):
     c, _ = client
     assert "Ikki xil" in c.post("/pair", data={"a": "UZB", "b": "UZB"}).text
     assert "Ikki xil" in c.post("/pair", data={"a": "UZB", "b": "HKG"}).text  # not a sovereign state
+
+
+def test_quota_on_one_gemini_model_moves_to_next(monkeypatch):
+    import httpx
+
+    def handler(request):
+        if request.url.path.endswith("/models"):
+            return httpx.Response(200, json=GEMINI_MODELS)
+        if "gemini-3.5-flash:" in request.url.path:
+            return httpx.Response(429, json={"error": {"message": "Quota exceeded"}})
+        return httpx.Response(200, json={"candidates": [{"content": {"parts": [{"text": "ok"}]}}]})
+
+    real = httpx.Client
+    monkeypatch.setattr(analyze.httpx, "Client", lambda **kw: real(transport=httpx.MockTransport(handler), **kw))
+    analyze._gemini_cache.clear()
+    monkeypatch.setenv("GEMINI_API_KEY", "k")
+    assert analyze._gemini("s", "p") == ("ok", "gemini-3.5-flash-lite")
