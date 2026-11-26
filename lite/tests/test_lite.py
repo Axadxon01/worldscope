@@ -332,3 +332,26 @@ def test_all_providers_fail_shows_each_reason(client, monkeypatch):
     monkeypatch.setattr(analyze.httpx, "Client", _gemini_transport([], status=400))
     r = c.post("/brief", data={"lang": "uz", "hours": "24"})
     assert "kalit noto" in r.text
+
+
+def test_busy_gemini_model_falls_through_to_next(monkeypatch):
+    import httpx
+
+    calls = []
+
+    def handler(request):
+        calls.append(request.url.path)
+        if request.url.path.endswith("/models"):
+            return httpx.Response(200, json=GEMINI_MODELS)
+        if "gemini-3.5-flash:" in request.url.path:
+            return httpx.Response(503, json={"error": {"message": "This model is currently experiencing high demand."}})
+        return httpx.Response(200, json={"candidates": [{"content": {"parts": [{"text": "ok [1]"}]}}]})
+
+    real = httpx.Client
+    monkeypatch.setattr(analyze.httpx, "Client", lambda **kw: real(transport=httpx.MockTransport(handler), **kw))
+    monkeypatch.setattr(analyze.time, "sleep", lambda s: None)
+    analyze._gemini_cache.clear()
+    monkeypatch.setenv("GEMINI_API_KEY", "k")
+    text, model = analyze._gemini("sys", "prompt")
+    assert text == "ok [1]" and model == "gemini-2.5-flash"
+    assert sum("gemini-3.5-flash:" in c for c in calls) == 2  # one retry before moving on

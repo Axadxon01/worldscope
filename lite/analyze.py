@@ -9,6 +9,7 @@ import csv
 import json
 import os
 import re
+import time
 from collections import Counter
 from pathlib import Path
 
@@ -625,7 +626,12 @@ def _gemini_version(name: str) -> tuple:
 
 
 def pick_gemini_model(models: list[dict]) -> str | None:
-    """Newest stable Flash model that can write text; Pro or preview only if nothing else."""
+    ranked = rank_gemini_models(models)
+    return ranked[0] if ranked else None
+
+
+def rank_gemini_models(models: list[dict]) -> list[str]:
+    """Text models, best first: newest stable Flash, then Flash-Lite, then the rest."""
     skip = ("image", "tts", "audio", "live", "embed", "vision", "thinking-exp", "learnlm", "gemma", "robotics")
     cands = []
     for m in models:
@@ -643,21 +649,22 @@ def pick_gemini_model(models: list[dict]) -> str | None:
             -len(name),
         )
         cands.append((rank, name))
-    return max(cands)[1] if cands else None
+    return [name for _, name in sorted(cands, reverse=True)]
 
 
-def _gemini_model(client: httpx.Client, key: str) -> str:
+def _gemini_models(client: httpx.Client, key: str) -> list[str]:
     if os.environ.get("WS_GEMINI_MODEL"):
-        return os.environ["WS_GEMINI_MODEL"]
-    if "model" not in _gemini_cache:
+        return [os.environ["WS_GEMINI_MODEL"]]
+    if "models" not in _gemini_cache:
         r = client.get(f"{GEMINI_API}/models", params={"pageSize": 1000}, headers={"x-goog-api-key": key})
         if r.status_code >= 400:
             raise AIError(_gemini_error(r))
-        name = pick_gemini_model(r.json().get("models", []))
-        if not name:
+        ranked = rank_gemini_models(r.json().get("models", []))
+        if not ranked:
             raise AIError("Gemini: matn yozadigan model topilmadi")
-        _gemini_cache["model"] = name
-    return _gemini_cache["model"]
+        _gemini_cache["models"] = ranked
+        _gemini_cache["model"] = ranked[0]
+    return _gemini_cache["models"]
 
 
 def _gemini_error(r: httpx.Response) -> str:
@@ -667,6 +674,8 @@ def _gemini_error(r: httpx.Response) -> str:
         msg = ""
     if r.status_code == 429:
         return "Gemini: bepul limit tugadi, birozdan keyin urinib ko'ring"
+    if r.status_code in (500, 503):
+        return "Gemini: modellar hozir band, bir-ikki daqiqadan keyin qayta urinib ko'ring"
     if "API key not valid" in msg or r.status_code in (401, 403):
         return "Gemini: kalit noto'g'ri yoki bu API uchun ruxsat yo'q"
     return f"Gemini: HTTP {r.status_code} {msg[:120]}".strip()
@@ -679,23 +688,36 @@ def _gemini(system: str, prompt: str) -> tuple[str, str]:
         "contents": [{"role": "user", "parts": [{"text": prompt}]}],
         "generationConfig": {"maxOutputTokens": 8192, "temperature": 0.3},
     }
+    last = "Gemini: javob yo'q"
     try:
         with httpx.Client(timeout=httpx.Timeout(120.0, connect=15.0)) as client:
-            model = _gemini_model(client, key)
-            r = client.post(f"{GEMINI_API}/models/{model}:generateContent", json=body, headers={"x-goog-api-key": key})
+            # Busy (503/500) models get one short retry, then the next model in the ranking is tried.
+            for model in _gemini_models(client, key)[:3]:
+                for attempt in range(2):
+                    r = client.post(
+                        f"{GEMINI_API}/models/{model}:generateContent", json=body, headers={"x-goog-api-key": key}
+                    )
+                    if r.status_code in (500, 503) and attempt == 0:
+                        time.sleep(3)
+                        continue
+                    break
+                if r.status_code < 400:
+                    return _gemini_text(r.json()), model
+                last = _gemini_error(r)
+                if r.status_code not in (404, 500, 503):
+                    break  # bad key or quota: another model will not help
     except httpx.HTTPError as e:
         raise AIError(f"Gemini: ulanib bo'lmadi ({type(e).__name__})") from e
-    if r.status_code >= 400:
-        if r.status_code == 404:
-            _gemini_cache.pop("model", None)  # the model was retired; pick again next time
-        raise AIError(_gemini_error(r))
-    data = r.json()
+    raise AIError(last)
+
+
+def _gemini_text(data: dict) -> str:
     cand = (data.get("candidates") or [{}])[0]
     text = "".join(p.get("text", "") for p in (cand.get("content") or {}).get("parts", []) if not p.get("thought"))
     if not text.strip():
         reason = cand.get("finishReason") or (data.get("promptFeedback") or {}).get("blockReason") or "bo'sh javob"
         raise AIError(f"Gemini javob bermadi: {reason}")
-    return text.strip(), model
+    return text.strip()
 
 
 PROVIDERS = {"anthropic": _anthropic, "gemini": _gemini}
