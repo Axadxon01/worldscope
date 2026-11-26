@@ -353,5 +353,5 @@ def test_busy_gemini_model_falls_through_to_next(monkeypatch):
     analyze._gemini_cache.clear()
     monkeypatch.setenv("GEMINI_API_KEY", "k")
     text, model = analyze._gemini("sys", "prompt")
-    assert text == "ok [1]" and model == "gemini-2.5-flash"
+    assert text == "ok [1]" and model == "gemini-3.5-flash-lite"
     assert sum("gemini-3.5-flash:" in c for c in calls) == 2  # one retry before moving on

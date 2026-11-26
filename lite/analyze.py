@@ -692,7 +692,7 @@ def _gemini(system: str, prompt: str) -> tuple[str, str]:
     try:
         with httpx.Client(timeout=httpx.Timeout(120.0, connect=15.0)) as client:
             # Busy (503/500) models get one short retry, then the next model in the ranking is tried.
-            for model in _gemini_models(client, key)[:3]:
+            for model in _fallback_order(_gemini_models(client, key)):
                 for attempt in range(2):
                     r = client.post(
                         f"{GEMINI_API}/models/{model}:generateContent", json=body, headers={"x-goog-api-key": key}
@@ -709,6 +709,18 @@ def _gemini(system: str, prompt: str) -> tuple[str, str]:
     except httpx.HTTPError as e:
         raise AIError(f"Gemini: ulanib bo'lmadi ({type(e).__name__})") from e
     raise AIError(last)
+
+
+def _fallback_order(ranked: list[str]) -> list[str]:
+    """Best model, then the best Flash-Lite (lighter, usually less loaded), then the runner-up."""
+    order = ranked[:1]
+    lite = next((m for m in ranked if "lite" in m), None)
+    for m in [lite, *ranked[1:]]:
+        if m and m not in order:
+            order.append(m)
+        if len(order) == 3:
+            break
+    return order
 
 
 def _gemini_text(data: dict) -> str:
