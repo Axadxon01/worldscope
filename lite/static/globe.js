@@ -133,14 +133,19 @@
     let W = 0, H = 0, R = 0, zoom = 1, rot = [-60, -25, 0], dragging = null, lastTouch = 0, anim = null, hover = null;
     let layer = null, signs = true, focused = -1, focusIso = null, hitSigns = [];
     const involved = new Set();
-    const links = (opt.links || []).map((l, i) => {
-      const a = opt.coords[l.from], b = opt.coords[l.to];
-      if (!a || !b) return null;
-      involved.add(l.from); involved.add(l.to);
-      const A = [a[1], a[0]], B = [b[1], b[0]], interp = d3.geoInterpolate(A, B);
-      const n = Math.max(8, Math.round(d3.geoDistance(A, B) * 30));
-      return {i, l, line: {type: "LineString", coordinates: d3.range(n + 1).map(k => interp(k / n))}, mid: interp(.5), end: B, start: A};
-    }).filter(Boolean);
+    let links = [];
+    function build(list) {
+      involved.clear();
+      links = (list || []).map((l, i) => {
+        const a = opt.coords[l.from], b = opt.coords[l.to];
+        if (!a || !b) return null;
+        involved.add(l.from); involved.add(l.to);
+        const A = [a[1], a[0]], B = [b[1], b[0]], interp = d3.geoInterpolate(A, B);
+        const n = Math.max(8, Math.round(d3.geoDistance(A, B) * 30));
+        return {i, l, line: {type: "LineString", coordinates: d3.range(n + 1).map(k => interp(k / n))}, mid: interp(.5), end: B, start: A};
+      }).filter(Boolean);
+    }
+    build(opt.links);
     const co = (opt.co || []).map(c => {
       const a = opt.coords[c.from], b = opt.coords[c.to];
       return a && b ? {type: "LineString", coordinates: [[a[1], a[0]], [b[1], b[0]]]} : null;
@@ -193,9 +198,10 @@
       }
       // arcs, with a travelling dash so the direction shows
       for (const k of links) {
-        const color = (opt.colors || {})[k.l.type] || "#d4af37", dim = focused >= 0 && focused !== k.i;
+        const color = k.l.color || (opt.colors || {})[k.l.type] || "#d4af37", dim = focused >= 0 && focused !== k.i;
+        const width = k.l.width || 2.2;
         ctx.globalAlpha = dim ? .25 : .95;
-        ctx.beginPath(); path(k.line); ctx.strokeStyle = color; ctx.lineWidth = focused === k.i ? 3.2 : 2.2;
+        ctx.beginPath(); path(k.line); ctx.strokeStyle = color; ctx.lineWidth = focused === k.i ? width + 1 : width;
         ctx.setLineDash(k.l.confidence === "low" ? [5, 6] : []); ctx.stroke();
         if (!reduced) {
           ctx.setLineDash([2, 14]); ctx.lineDashOffset = -t * 30; ctx.strokeStyle = "rgba(255,255,255,.8)"; ctx.lineWidth = 2;
@@ -213,7 +219,7 @@
         const order = links.filter(k => visible(k.mid))
           .sort((a, b) => d3.geoDistance(a.mid, [-rot[0], -rot[1]]) - d3.geoDistance(b.mid, [-rot[0], -rot[1]]));
         order.forEach((k, n) => {
-          const p = proj(k.mid), draw = SIGNS[k.l.type];
+          const p = proj(k.mid), draw = k.l.sign === false ? null : SIGNS[k.l.type];
           if (!draw) return;
           const conf = k.l.confidence === "high" ? 1 : k.l.confidence === "low" ? .7 : .85;
           const s = (opt.compact ? 1.05 : 1.15) * conf * Math.min(1.6, Math.max(.8, zoom));
@@ -224,7 +230,7 @@
           ctx.scale(s, s); draw(ctx, alive ? t + k.i * .37 : 0);
           ctx.restore();
           if (!opt.compact) {                                   // its number, as in the side list
-            ctx.fillStyle = (opt.colors || {})[k.l.type] || "#d4af37";
+            ctx.fillStyle = k.l.color || (opt.colors || {})[k.l.type] || "#d4af37";
             ctx.beginPath(); ctx.arc(p[0] + 22 * s, p[1] - 24 * s, 7, 0, TAU); ctx.fill();
             ctx.fillStyle = "#fff"; ctx.font = "600 9.5px Inter, sans-serif"; ctx.textAlign = "center";
             ctx.fillText(String(k.i + 1), p[0] + 22 * s, p[1] - 24 * s + 3.3);
@@ -282,16 +288,20 @@
 
     // input
     const pt = e => { const r = canvas.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
+    if (opt.compact) canvas.style.touchAction = "pan-y";  // a finger moving up or down scrolls the page
     canvas.addEventListener("pointerdown", e => {
-      dragging = {p: pt(e), rot: rot.slice(), moved: false}; canvas.setPointerCapture(e.pointerId); anim = null;
+      dragging = {p: pt(e), rot: rot.slice(), moved: false, touch: e.pointerType === "touch"};
+      canvas.setPointerCapture(e.pointerId); anim = null;
     });
+    canvas.addEventListener("pointercancel", () => { dragging = null; });
     canvas.addEventListener("pointermove", e => {
       const p = pt(e); tipXY = p;
       if (dragging) {
         const dx = p[0] - dragging.p[0], dy = p[1] - dragging.p[1];
         if (Math.abs(dx) + Math.abs(dy) > 3) dragging.moved = true;
         const k = 70 / (R * zoom);
-        rot = [dragging.rot[0] + dx * k * 1.6, Math.max(-75, Math.min(75, dragging.rot[1] - dy * k * 1.6)), 0];
+        const tilt = dragging.touch && opt.compact ? 0 : dy;
+        rot = [dragging.rot[0] + dx * k * 1.6, Math.max(-75, Math.min(75, dragging.rot[1] - tilt * k * 1.6)), 0];
         idleSince = performance.now();
         return;
       }
@@ -330,6 +340,7 @@
       clearFocus() { focused = -1; focusIso = null; idleSince = performance.now(); },
       focusCountry(iso) { focusIso = iso; const f = byIso[iso]; if (f) turnTo(d3.geoCentroid(f), Math.max(zoom, 1.5)); },
       setLayer(v) { layer = v; },
+      setLinks(list) { build(list); focused = -1; },
       setSigns(v) { signs = v; },
     };
   };

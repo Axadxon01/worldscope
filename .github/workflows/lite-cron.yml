@@ -1,49 +1,42 @@
 name: Lite scheduled jobs
 
-# WorldScope Lite sleeps on Render's free plan, so its own timer stops with it. These schedules wake
-# it and run one job each. Needs the repository secret LITE_CRON_TOKEN (same value as CRON_TOKEN on
-# Render); without it the workflow does nothing. Scheduled workflows run from the default branch.
+# WorldScope Lite sleeps on Render's free plan, so its own timer stops with it. This workflow only
+# wakes it up and keeps it awake while it works: the app itself decides which jobs are due (news,
+# the morning digest, the daily AI map, sanctions lists, watch-list checks, forecast checks) and
+# remembers what it already did. No secret is needed. Scheduled workflows run from the default branch.
 on:
   schedule:
-    - cron: "15 1,7,13,19 * * *"   # refresh news every 6 hours (06:15, 12:15, 18:15, 00:15 Tashkent)
-    - cron: "30 2 * * *"           # morning digest, 07:30 Tashkent
-    - cron: "0 5 * * 1"            # followed pairs, Monday 10:00 Tashkent
-    - cron: "40 22 * * 0"          # sanctions lists, Monday 03:40 Tashkent
+    - cron: "17 */3 * * *"   # every 3 hours
+    - cron: "5 2 * * *"      # 07:05 Tashkent, for the morning digest
   workflow_dispatch:
-    inputs:
-      job:
-        description: Which job
-        type: choice
-        options: [refresh, digest, weekly, sanctions]
-        default: refresh
 
 permissions: {}
 
 jobs:
-  run:
+  wake:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     steps:
-      - name: Call WorldScope Lite
+      - name: Wake WorldScope Lite and wait for its jobs
         env:
-          TOKEN: ${{ secrets.LITE_CRON_TOKEN }}
           URL: ${{ vars.LITE_URL || 'https://worldscope-lite.onrender.com' }}
-          SCHEDULE: ${{ github.event.schedule }}
-          INPUT_JOB: ${{ inputs.job }}
+          TOKEN: ${{ secrets.LITE_CRON_TOKEN }}
         run: |
-          if [ -z "$TOKEN" ]; then echo "LITE_CRON_TOKEN is not set; nothing to do."; exit 0; fi
-          case "$SCHEDULE" in
-            "30 2 * * *") JOB=digest ;;
-            "0 5 * * 1") JOB=weekly ;;
-            "40 22 * * 0") JOB=sanctions ;;
-            "") JOB="${INPUT_JOB:-refresh}" ;;
-            *) JOB=refresh ;;
-          esac
-          echo "job: $JOB"
           # a sleeping free service takes up to a minute or two to start
           for i in $(seq 1 12); do
             if curl -sf -m 20 "$URL/healthz" > /dev/null; then break; fi
             echo "waiting for the service ($i)"; sleep 15
           done
-          curl -sS --fail-with-body -m 900 -X POST -H "x-cron-token: $TOKEN" "$URL/cron/$JOB"
-          echo
+          # with a token, ask for the due jobs at once; without one the app starts them itself
+          if [ -n "$TOKEN" ]; then
+            curl -sS -m 30 -X POST -H "x-cron-token: $TOKEN" "$URL/cron/jobs" || true
+          fi
+          # keep it awake (Render sleeps after 15 idle minutes) until the jobs are done, at most ~20 min
+          idle=0
+          for i in $(seq 1 20); do
+            sleep 60
+            state=$(curl -s -m 20 "$URL/healthz" || echo '{}')
+            echo "$(date -u +%H:%M) $state"
+            if echo "$state" | grep -q '"busy":false'; then idle=$((idle + 1)); else idle=0; fi
+            if [ "$idle" -ge 2 ]; then break; fi
+          done

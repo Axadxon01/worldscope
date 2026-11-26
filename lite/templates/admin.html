@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+{% block title %}Boshqaruv · WorldScope Lite{% endblock %}
+{% block body %}
+<h2>Boshqaruv</h2>
+{% if msg %}<p class="ok">{{ msg }}</p>{% endif %}
+{% if error %}<p class="warn">{{ error }}</p>{% endif %}
+{% if created %}
+<div class="card created">
+  <p>Akkaunt tayyor. Bu parol <b>faqat hozir</b> ko'rinadi — egasiga xavfsiz yo'l bilan bering, u kirgach "Profil"da o'zgartirsin.</p>
+  <p class="code-big">Login: <code>{{ created[0] }}</code> · Vaqtinchalik parol: <code>{{ created[1] }}</code></p>
+</div>
+{% endif %}
+
+<div class="grid2">
+<section class="card">
+  <h3>Foydalanuvchilar</h3>
+  {% if users %}
+  <table class="facts small-t">
+    <thead><tr><th>Login</th><th>Rol</th><th>Oxirgi kirish</th><th>Telegram</th><th></th></tr></thead>
+    <tbody>{% for u in users %}
+      <tr><td><b>{{ u.username }}</b></td><td>{{ "admin" if u.role == "admin" else "user" }}</td>
+        <td class="small">{{ u.last_login|ago if u.last_login else "—" }}</td><td>{{ "✅" if u.tg_chat else "—" }}</td>
+        <td class="actions">
+          <form method="post" action="/admin/users/{{ u.id }}/reset"><button class="ghost small" title="Yangi vaqtinchalik parol">🔑</button></form>
+          {% if not me or me.id != u.id %}<form method="post" action="/admin/users/{{ u.id }}/delete" onsubmit="return confirm('{{ u.username }} o\'chirilsinmi?')"><button class="ghost small danger" title="O'chirish">✕</button></form>{% endif %}
+        </td></tr>
+    {% endfor %}</tbody>
+  </table>
+  {% else %}<p class="muted">Hali akkaunt yo'q. <a href="/login">Birinchi akkauntni yarating</a> — u administrator bo'ladi.</p>{% endif %}
+  <form method="post" action="/admin/users" class="pickrow" style="margin-top:10px">
+    <input name="username" placeholder="yangi login" required minlength="3" maxlength="32">
+    <select name="role"><option value="user">foydalanuvchi</option><option value="admin">administrator</option></select>
+    <button>Qo'shish</button>
+  </form>
+</section>
+
+<section class="card">
+  <h3>Rejali ishlar</h3>
+  <p class="muted small">Sayt uyg'onganda (GitHub Actions har 3 soatda uyg'otadi) vaqti kelgan ishlarni o'zi bajaradi.</p>
+  <table class="facts small-t">
+    <thead><tr><th>Ish</th><th>Har</th><th>Oxirgi marta</th><th></th></tr></thead>
+    <tbody>{% for name, every in EVERY.items() %}
+      <tr><td>{{ {"refresh": "Yangiliklar", "automap": "Kunlik AI xaritasi", "digest": "Telegram digest", "weekly": "Juftliklar qayta tahlili",
+                  "sanctions": "Sanksiya ro'yxatlari", "watch_risk": "Kuzatuv: xavf indeksi", "predictions": "Bashoratlar tekshiruvi"}[name] }}</td>
+        <td class="small">{{ (every.total_seconds() / 3600)|round|int }} soat</td>
+        <td class="small">{{ jobs[name].isoformat()|ago if name in jobs else "hali yo'q" }}</td>
+        <td><form method="post" action="/admin/jobs"><input type="hidden" name="job" value="{{ name }}"><button class="ghost small">▶</button></form></td></tr>
+    {% endfor %}</tbody>
+  </table>
+</section>
+
+<section class="card">
+  <h3>Holat</h3>
+  <ul class="plain small">
+    <li>Ma'lumotlar bazasi: <b>{{ db_desc }}</b></li>
+    <li>AI so'rovlari bugun: <b>{{ ai_used }}</b></li>
+    <li>Ma'no vektorlari: {% if embed.enabled %}{{ embed.used_today }}/{{ embed.daily }} bugun · model {{ embed.model.split('/')[-1] }}
+      {% if embed.blocked_until %} · kutish: {{ embed.blocked_until[:16].replace('T', ' ') }} UTC gacha{% endif %}
+      {% if embed.last_error %}<br><span class="muted">oxirgi xato: {{ embed.last_error }}</span>{% endif %}{% else %}o'chiq{% endif %}</li>
+    <li>Sanksiya ro'yxatlari: {% for k, v in sanc.items() %}{{ k }} {{ v.count or "—" }}{% if v.error %} <span class="bad">(xato)</span>{% endif %}{{ ", " if not loop.last }}{% else %}hali yuklanmagan{% endfor %}</li>
+    <li>Bashoratlar: {{ preds.total }} ta, {{ preds.open }} tasi kutilmoqda</li>
+  </ul>
+</section>
+
+<section class="card">
+  <h3>Zaxira</h3>
+  <p class="small">Akkauntlar, kuzatuv ro'yxatlari, tahlillar, xaritalar va bashoratlar bitta JSON faylga yoziladi (yangiliklar va sanksiya
+    ro'yxatlari qayta yuklanadi). Bepul baza muddati tugashidan oldin yuklab oling va yangi bazada tiklang.</p>
+  <p><a class="button" href="/admin/export">⬇ Zaxirani yuklab olish</a></p>
+  <form method="post" action="/admin/import" enctype="multipart/form-data" class="pickrow">
+    <input type="file" name="file" accept="application/json,.json" required>
+    <button class="ghost">⬆ Tiklash</button>
+  </form>
+</section>
+</div>
+{% endblock %}

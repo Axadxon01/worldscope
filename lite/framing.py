@@ -45,7 +45,7 @@ CAMPS: list[tuple[str, str, list[str]]] = [
         "kapital kz", "zakon kz", "sputnik kazakhstan", "report az", "armenpress", "interpressnews"]),
     ("cn", "Xitoy davlat OAV", [
         "xinhua", "синьхуа", "cgtn", "global times", "china daily", "people s daily", "cctv", "china org cn",
-        "ecns", "chinanews", "china news service", "жэньминь", "south china morning post"]),
+        "ecns", "chinanews", "china news service", "жэньминь"]),
     ("tr", "Turkiya OAV", ["anadolu", "aa com tr", "trt", "daily sabah", "hurriyet", "hürriyet", "yeni safak",
                            "yeni şafak", "sabah", "milliyet", "sozcu", "sözcü"]),
     ("gulf", "Arab va Fors ko'rfazi OAV", ["al jazeera", "aljazeera", "al arabiya", "alarabiya", "gulf news",

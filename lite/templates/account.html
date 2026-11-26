@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block title %}Profil · WorldScope Lite{% endblock %}
+{% block body %}
+<h2>Profil</h2>
+{% if msg %}<p class="ok">{{ msg }}</p>{% endif %}
+{% if error %}<p class="warn">{{ error }}</p>{% endif %}
+{% if not u %}
+  <p class="muted">Sayt hozir akkauntsiz ishlayapti. <a href="/login">Akkaunt yarating</a>, shunda kuzatuv ro'yxatingiz faqat sizniki bo'ladi va
+    ogohlantirishlar Telegram'ga keladi.</p>
+{% else %}
+<div class="grid2">
+  <div class="card">
+    <h3>{{ u.username }} <span class="chip">{{ "administrator" if u.role == "admin" else "foydalanuvchi" }}</span></h3>
+    <p class="muted small">Akkaunt yaratilgan: {{ u.created[:10] }}{% if u.last_login %} · oxirgi kirish: {{ u.last_login|ago }}{% endif %}</p>
+    <form method="post" action="/account/password" class="stack">
+      <label>Hozirgi parol<input type="password" name="old" required autocomplete="current-password"></label>
+      <label>Yangi parol<input type="password" name="new" required minlength="8" autocomplete="new-password"></label>
+      <label>Yangi parol yana<input type="password" name="new2" required minlength="8" autocomplete="new-password"></label>
+      <button>Parolni o'zgartirish</button>
+    </form>
+  </div>
+  <div class="card">
+    <h3>📨 Telegram</h3>
+    {% if not bot %}<p class="muted">Telegram bot serverda yoqilmagan.</p>
+    {% elif u.tg_chat %}
+      <p>✅ Telegram bog'langan. Kuzatuv ogohlantirishlari va shaxsiy digest u yerga keladi.</p>
+      <form method="post" action="/account/telegram"><input type="hidden" name="action" value="unlink"><button class="ghost">Uzish</button></form>
+    {% else %}
+      {% if code %}
+        <p>Botga quyidagini yuboring (kod 15 daqiqa amal qiladi):</p>
+        <p class="code-big"><code>/bogla {{ code }}</code></p>
+        {% if bot_name %}<p><a class="button" href="https://t.me/{{ bot_name }}?start=bogla_{{ code }}" target="_blank" rel="noopener">Telegram'da ochib bog'lash →</a></p>
+          <p class="muted small">Tugma botni ochadi; "Start"ni bossangiz kifoya.</p>{% endif %}
+      {% else %}
+        <p>Kuzatuv ro'yxatingizdagi o'zgarishlar (sanksiyaga tushgan kompaniya, xavf indeksi keskin o'zgargan davlat) Telegram'ga kelsin.</p>
+      {% endif %}
+      <form method="post" action="/account/telegram"><button>{{ "Yangi kod" if code else "Bog'lash kodini olish" }}</button></form>
+    {% endif %}
+  </div>
+</div>
+{% endif %}
+{% endblock %}

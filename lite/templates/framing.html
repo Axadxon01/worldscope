@@ -17,7 +17,7 @@
 
 {% if current %}{% set d = current.data %}
 <section class="debt">
-  <h2>{{ current.topic }}</h2>
+  <h2>{{ current.topic }} <button type="button" class="ghost small noprint" data-pdf="WorldScope - OAV talqini">📄 PDF</button></h2>
   <p class="muted small">{{ current.created[:16].replace('T', ' ') }} UTC · {{ current.model }} · {{ d['items']|length }} ta sarlavha,
     {{ d.camps|length }} ta lager</p>
   {% if d.story %}<p class="summary">{{ d.story }}</p>{% endif %}

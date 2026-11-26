@@ -69,7 +69,29 @@ To'liq WorldScope (`frontend/`, `backend/`) o'zgarishsiz qoladi; bu papka undan 
   baholovchi so'zlar ishlatadi, qaysi faktda hammasi bir xil. Mavzu yozasiz yoki saytning o'zi topgan
   "bir nechta lager yoritgan voqea"ni tanlaysiz. AI faqat sarlavha va qisqa matnni o'qiydi; ikki lagerdan
   kam bo'lsa ishga tushmaydi. Baholovchi so'z faqat sarlavhada haqiqatan bo'lsa ko'rsatiladi.
-- **Bot**: `/xavf UZB` — xavf indeksi, `/sanksiya Nom` — ro'yxatlarda qidiruv.
+- **Bot**: `/xavf UZB` — xavf indeksi, `/sanksiya Nom` — ro'yxatlarda qidiruv, `/bogla KOD` — sayt
+  akkauntini bog'lash, `/mening` — kuzatuv ro'yxati holati.
+- **Akkauntlar**: har kim o'z login va paroli bilan kiradi. Birinchi kirishda `APP_PASSWORD` (sozlash paroli)
+  so'raladi va siz o'zingizga login/parol tanlaysiz — siz administrator bo'lasiz, shundan keyin eski umumiy
+  parol hech narsani ochmaydi. Administrator "Boshqaruv" sahifasida boshqa odamlarni qo'shadi (vaqtinchalik
+  parol bir marta ko'rsatiladi), rejali ishlarni qo'lda ishga tushiradi va zaxira oladi. Parollar
+  PBKDF2-SHA256 bilan, sessiyalar faqat xeshi bilan saqlanadi; 10 daqiqada 8 xato urinishdan keyin kirish to'xtaydi.
+- **Kuzatuv ro'yxati** (`/watch`): davlatlar va kompaniyalar. Kompaniya sanksiya ro'yxatiga tushsa yoki
+  davlatning xavf indeksi 5 balldan ko'p o'zgarsa, ogohlantirish saytda chiqadi va Telegram'ga keladi;
+  ertalabki digestda kuzatilayotgan davlatlar haqida alohida qism bo'ladi.
+- **Davlat sahifasi** (`/country/UZB`): bitta davlat haqida hammasi — globus, Jahon banki raqamlari, xavf
+  indeksi, qarz, sanksiyalar, savdo hamkorlari, AI xaritasidagi aloqalari, juftlik tahlillari, bashoratlar,
+  qaysi OAV lagerlari ko'p yozayotgani va so'nggi voqealar.
+- **Vaqt mashinasi**: "Globus" sahifasida saqlangan barcha AI xaritalari bo'ylab surgich; har xaritada oldingisiga
+  nisbatan yangi va yo'qolgan aloqalar ko'rsatiladi. AI xaritasi har kuni o'zi yaratiladi.
+- **Savdo oqimlari**: "Globus" → "Savdo" — tanlangan davlatning eksporti yoki importi hamkorlar bo'yicha (UN
+  Comtrade, eng so'nggi hisobot yili), chiziq qalinligi savdo hajmiga mos.
+- **Bashoratlar hisobi** (`/predictions`): juftlik tahlilidagi har bir ssenariy ehtimoli va muddati bilan
+  yoziladi; muddat o'tgach AI o'sha davr yangiliklari bilan manbali tekshiradi. Sahifada to'g'ri chiqqan ulush,
+  Brier bali va ehtimollar kalibrovkasi.
+- **PDF**: juftlik, qarz, xavf, davlat, OAV talqini va bashoratlar sahifalarida "📄 PDF" — brauzerning
+  "PDF sifatida saqlash" oynasi toza, yorug' ko'rinishda ochiladi.
+- **Telefon**: pastki menyu, globus barmoq bilan aylanadi, sahifa esa vertikal suriladi.
 
 Faqat sarlavha, qisqa matn va havola saqlanadi. Paywall va bot himoyasi aylanib o'tilmaydi.
 Instagram'ning ochiq API'si yo'q va scraping qoidalariga zid, shuning uchun qo'shilmagan.
@@ -109,17 +131,25 @@ qo'shgan manbalaringiz o'chadi. Doimiy manbalarni `sources_default.json` ga yozi
 
 ## Rejali ishlar
 
-Bepul Render xizmati uxlaganda o'z taymeri ham to'xtaydi. `.github/workflows/lite-cron.yml` uni
-GitHub Actions orqali uyg'otadi: har 6 soatda yangilash, har kuni 07:30 (Toshkent) digest, dushanba
-10:00 da kuzatilgan juftliklar, dushanba 03:40 da sanksiya ro'yxatlari. Ishlashi uchun: bitta tasodifiy token yarating, uni Render'da `CRON_TOKEN`,
-GitHub'da (Settings → Secrets → Actions) `LITE_CRON_TOKEN` sifatida qo'ying. GitHub rejali ishlarni faqat
-asosiy (`main`) branch'dan ishga tushiradi.
+Ilova vaqti kelgan ishlarni o'zi bajaradi va qachon bajarganini bazada eslab qoladi: yangiliklar (25 daqiqada),
+sanksiya ro'yxatlari (haftada), ertalabki digest (07:00 Toshkentdan keyin), kunlik AI xaritasi, kuzatuv
+ro'yxatidagi davlatlarning xavf indeksi, muddati kelgan bashoratlar (kuniga 3 tagacha) va kuzatilgan
+juftliklarning haftalik tahlili. Bepul Render xizmati 15 daqiqa so'rovsiz qolsa uxlaydi, shuning uchun
+`.github/workflows/lite-cron.yml` uni har 3 soatda va 07:05 da (Toshkent) uyg'otadi va ishlar tugaguncha
+uyg'oq ushlab turadi. Buning uchun hech qanday maxfiy token kerak emas. GitHub rejali ishlarni faqat
+asosiy (`main`) branch'dan ishga tushiradi. "Boshqaruv" sahifasida har bir ishning oxirgi vaqti va qo'lda
+ishga tushirish tugmasi bor.
+
+Ma'lumotlar bazasi: `render-lite.yaml` Blueprint xizmatga `DATABASE_URL` ni umumiy Postgres bazasidan
+o'zi beradi (parolni qo'lda ko'chirish kerak emas). Bepul Render bazasining muddati cheklangan: "Boshqaruv"
+→ "Zaxirani yuklab olish" bilan akkauntlar, kuzatuvlar, tahlillar va bashoratlarni JSON qilib oling va yangi
+bazada "Tiklash" bilan yuklang.
 
 ## Sozlamalar
 
 | O'zgaruvchi | Standart | Ma'nosi |
 | --- | --- | --- |
-| `APP_PASSWORD` | yo'q | Bo'lsa, sayt parol so'raydi (foydalanuvchi nomi istalgan) |
+| `APP_PASSWORD` | yo'q | Sozlash paroli: birinchi akkaunt (administrator) faqat u bilan yaratiladi. Akkaunt bo'lmasa va bu ham bo'lmasa, sayt ochiq |
 | `GEMINI_API_KEY` | yo'q | Gemini bilan AI tahlil (aistudio.google.com/apikey, bepul tarif bor) |
 | `ANTHROPIC_API_KEY` | yo'q | Claude bilan AI tahlil |
 | `WS_PROVIDER` | `anthropic` | Ikkala kalit bo'lsa, qaysi biri birinchi sinaladi (`gemini` yoki `anthropic`); biri ishlamasa ikkinchisiga o'tadi |
@@ -134,7 +164,11 @@ asosiy (`main`) branch'dan ishga tushiradi.
 | `TELEGRAM_BOT_TOKEN` | yo'q | @BotFather bergan token; bot va kunlik digestni yoqadi |
 | `PUBLIC_URL` | `https://worldscope-lite.onrender.com` | Bot havolalari va webhook uchun saytning manzili |
 | `WS_SANCTIONS_AUTO` | `1` | Ro'yxatlar yo'q yoki 8 kundan eski bo'lsa, ishga tushgach o'zi yuklaydi (~80 MB yuklab olinadi) |
-| `CRON_TOKEN` | yo'q | `/cron/refresh`, `/cron/digest`, `/cron/weekly`, `/cron/sanctions` uchun maxfiy token (GitHub'da `LITE_CRON_TOKEN`) |
+| `CRON_TOKEN` | yo'q | Ixtiyoriy: `/cron/<ish>` va `/cron/jobs` ni tashqaridan chaqirish uchun (GitHub'da `LITE_CRON_TOKEN`); usiz ham ishlar o'zi bajariladi |
+| `WS_EMBED_DAILY` | `900` | Kuniga nechta sarlavhaga ma'no vektori olinadi (Gemini bepul tarifi ~1000/kun); kvota tugasa ertasi kungacha kutadi |
+| `WS_PRED_PER_DAY` | `3` | Kuniga nechta muddati kelgan bashorat AI bilan tekshiriladi |
+| `WS_WATCH_RISK_DELTA` | `5` | Kuzatilayotgan davlatning xavf indeksi necha ballga o'zgarsa ogohlantiriladi |
+| `TELEGRAM_BOT_NAME` | avtomatik | Botning @nomi (bo'lmasa ishga tushganda Telegram'dan o'zi oladi) |
 | `WS_WEEKLY_PAIRS` | `4` | Haftalik ishda nechta kuzatilgan juftlik qayta tahlil qilinadi |
 | `WS_EMBED` | `1` | `0` bo'lsa ma'no vektorlari o'chadi |
 | `WS_EMBED_MERGE` | `0.92` | Ma'no o'xshashligi chegarasi |

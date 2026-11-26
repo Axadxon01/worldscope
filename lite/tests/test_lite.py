@@ -3,10 +3,12 @@
 import importlib
 import json
 import os
+import re
 import sys
 import uuid
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from urllib.parse import unquote_plus
 
 import pytest
 
@@ -16,6 +18,9 @@ import analyze
 import collectors
 
 NOW = datetime.now(UTC)
+# modules that hold a database handle or settings read at import: reloaded for every test
+MODULES = ("db", "facts", "debt", "telegram_bot", "sanctions", "risk", "framing", "accounts", "watch",
+           "predictions", "trade", "scheduler", "embed", "app")  # fmt: skip
 
 
 def use_test_db(monkeypatch, tmp_path, name):
@@ -139,7 +144,7 @@ def client(tmp_path, monkeypatch):
     monkeypatch.delenv("APP_PASSWORD", raising=False)
     monkeypatch.setenv("WS_SANCTIONS_AUTO", "0")  # no 80 MB downloads in tests
     monkeypatch.setenv("WS_LOOP", "0")  # the test runs refresh itself; a second one would race it
-    for m in ("db", "facts", "debt", "telegram_bot", "sanctions", "risk", "framing", "app"):
+    for m in MODULES:
         sys.modules.pop(m, None)
     import db  # noqa: F401
 
@@ -241,19 +246,102 @@ def test_brief_with_fake_model(client, monkeypatch):
     assert "Manbalar" in r.text
 
 
-def test_password_gate(tmp_path, monkeypatch):
+def gated_app(tmp_path, monkeypatch, password="s3cret"):
     use_test_db(monkeypatch, tmp_path, "p")
-    monkeypatch.setenv("APP_PASSWORD", "s3cret")
-    for m in ("db", "facts", "debt", "telegram_bot", "app"):
+    monkeypatch.setenv("APP_PASSWORD", password)
+    monkeypatch.setenv("WS_LOOP", "0")
+    monkeypatch.setenv("WS_SANCTIONS_AUTO", "0")
+    for m in MODULES:
         sys.modules.pop(m, None)
     app_mod = importlib.import_module("app")
-    monkeypatch.setattr(app_mod, "refresh", lambda: __import__("asyncio").sleep(0))
+    return app_mod
+
+
+def test_setup_password_makes_the_first_admin_then_stops_working(tmp_path, monkeypatch):
+    app_mod = gated_app(tmp_path, monkeypatch)
     from fastapi.testclient import TestClient
 
     with TestClient(app_mod.app, headers={"origin": "http://testserver"}) as c:
-        assert c.get("/").status_code == 401
+        r = c.get("/", follow_redirects=False)
+        assert r.status_code == 303 and r.headers["location"].startswith("/login")
         assert c.get("/healthz").status_code == 200
-        assert c.get("/", auth=("any", "s3cret")).status_code == 200
+        assert c.get("/api/articles").status_code == 401
+        assert "Birinchi sozlash" in c.get("/login").text
+        bad = c.post("/login", data={"setup": "wrong", "username": "akhad", "password": "longpassword1",
+                                     "password2": "longpassword1"}, follow_redirects=False)  # fmt: skip
+        assert "error=" in bad.headers["location"] and not app_mod.accounts.any_users()
+        ok = c.post("/login", data={"setup": "s3cret", "username": "akhad", "password": "longpassword1",
+                                    "password2": "longpassword1", "next": "/watch"}, follow_redirects=False)  # fmt: skip
+        assert ok.status_code == 303 and ok.headers["location"] == "/watch"
+        assert app_mod.accounts.COOKIE in ok.cookies
+        assert c.get("/").status_code == 200  # the session cookie works
+        page = c.get("/admin").text
+        assert "akhad" in page and "Rejali ishlar" in page
+        c.post("/logout")
+        assert c.get("/", follow_redirects=False).status_code == 303
+        # the setup password no longer opens anything, a wrong password does not, the right one does
+        again = c.post("/login", data={"setup": "s3cret", "username": "intruder", "password": "x" * 10,
+                                       "password2": "x" * 10}, follow_redirects=False)  # fmt: skip
+        assert "error=" in again.headers["location"]
+        assert [u["username"] for u in app_mod.accounts.list_users()] == ["akhad"]
+        assert c.get("/", auth=("any", "s3cret"), follow_redirects=False).status_code == 303
+        r = c.post("/login", data={"username": "AKHAD", "password": "longpassword1"}, follow_redirects=False)
+        assert r.headers["location"] == "/" and c.get("/").status_code == 200
+
+
+def test_admin_adds_people_and_only_admins_manage(tmp_path, monkeypatch):
+    app_mod = gated_app(tmp_path, monkeypatch)
+    acc = app_mod.accounts
+    from fastapi.testclient import TestClient
+
+    with TestClient(app_mod.app, headers={"origin": "http://testserver"}) as c:
+        acc.create("boss", "bosspassword", "admin")
+        c.post("/login", data={"username": "boss", "password": "bosspassword"})
+        page = c.post("/admin/users", data={"username": "ali", "role": "user"}).text
+        temp = re.search(r"Vaqtinchalik parol: <code>([^<]+)</code>", page).group(1)
+        assert len(temp) == 12
+        me = acc.list_users()[0]
+        assert "error=" in c.post(f"/admin/users/{me['id']}/delete", follow_redirects=False).headers["location"]
+        c.post("/logout")
+        c.post("/login", data={"username": "ali", "password": temp})
+        assert c.get("/admin").status_code == 403
+        assert c.get("/watch").status_code == 200
+        # changing the password ends other sessions but keeps this one
+        r = c.post("/account/password", data={"old": temp, "new": "alis-new-pass", "new2": "alis-new-pass"})
+        assert "Parol o" in r.text and acc.authenticate("ali", "alis-new-pass")
+    for bad in [("ab", "longenough"), ("good_name", "short"), ("same_as_pw", "same_as_pw")]:
+        with pytest.raises(acc.AccountError):
+            acc.create(*bad)
+
+
+def test_login_is_throttled(tmp_path, monkeypatch):
+    app_mod = gated_app(tmp_path, monkeypatch)
+    from fastapi.testclient import TestClient
+
+    with TestClient(app_mod.app, headers={"origin": "http://testserver"}) as c:
+        app_mod.accounts.create("boss", "bosspassword", "admin")
+        for _ in range(app_mod.accounts.FAIL_LIMIT):
+            c.post("/login", data={"username": "boss", "password": "nope"})
+        r = c.post("/login", data={"username": "boss", "password": "bosspassword"}, follow_redirects=False)
+        assert "error=" in r.headers["location"] and "urinish" in unquote_plus(r.headers["location"])
+
+
+def test_passwords_and_sessions(tmp_path, monkeypatch):
+    app_mod = gated_app(tmp_path, monkeypatch)
+    acc = app_mod.accounts
+    from fastapi.testclient import TestClient
+
+    with TestClient(app_mod.app):
+        h = acc.hash_password("correct horse")
+        assert acc.check_password("correct horse", h) and not acc.check_password("wrong", h)
+        assert not acc.check_password("x", "garbage")
+        u = acc.create("someone", "a-long-password")
+        token = acc.start_session(u["id"])
+        assert acc.session_user(token)["username"] == "someone"
+        stored = app_mod.db.one("SELECT token FROM sessions")["token"]
+        assert stored != token and len(stored) == 64  # only the hash is kept
+        acc.end_session(token)
+        assert acc.session_user(token) is None
 
 
 def test_undated_item_in_dated_feed_is_dropped():
@@ -950,7 +1038,8 @@ def test_refresh_stores_vectors(client, monkeypatch):
     with db.tx() as conn:
         conn.execute("UPDATE articles SET emb = NULL")
     assert app_mod._embed_new() > 0
-    assert db.one("SELECT COUNT(*) n FROM articles WHERE emb IS NULL")["n"] == 0
+    since = (datetime.now(UTC) - timedelta(hours=36)).isoformat()
+    assert db.one("SELECT COUNT(*) n FROM articles WHERE emb IS NULL AND published >= ?", (since,))["n"] == 0
     assert "emb" not in c.get("/api/articles?hours=168").json()[0]
 
 
@@ -1403,3 +1492,308 @@ def test_cron_sanctions(bot, monkeypatch):
     monkeypatch.setattr(app_mod.sanctions, "refresh", fake)
     r = c.post("/cron/sanctions", headers={"x-cron-token": "cron-secret"})
     assert r.json() == {"OFAC": 3}
+
+
+# ------------------------------------------------------------------ watch list, scheduler, forecasts, trade, pages
+
+
+def test_watch_list_alerts_on_new_sanctions_match_and_risk_move(client, tmp_path, monkeypatch):
+    c, app_mod = client
+    S = load_sample_lists(app_mod, tmp_path)
+    W = app_mod.watch
+    assert "Qo'shildi" in unquote_plus(
+        c.post("/watch/add", data={"kind": "company", "value": "Muminov"}, follow_redirects=False).headers["location"]
+    )
+    c.post("/watch/add", data={"kind": "country", "value": "UZB"})
+    assert (
+        "error="
+        in c.post("/watch/add", data={"kind": "country", "value": "XXX"}, follow_redirects=False).headers["location"]
+    )
+    item = next(i for i in W.items(0) if i["kind"] == "company")
+    assert len(item["state"]["known"]) == 2  # EU + UK already list him: known from the start, no alert
+    assert W.check_sanctions() == []
+    # a new listing of the same name appears in a later download
+    rec = S._record("OFAC", "777", "person", "MUMINOV, Rustam", (), {"UZB"}, ["RUSSIA-EO14024"])
+    with app_mod.db.tx() as conn:
+        conn.execute(
+            "INSERT INTO sanctions (list, uid, kind, name, aliases, countries, programs, listed, search) VALUES (?,?,?,?,?,?,?,?,?)",
+            tuple(rec[k] for k in S.COLUMNS[1:]) if False else tuple(rec[k] for k in S.COLUMNS),
+        )
+    alerts = W.check_sanctions()
+    assert len(alerts) == 1 and "OFAC" in alerts[0][1] and alerts[0][0] == 0
+    assert W.check_sanctions() == []  # told once
+    rows = [{"iso": "UZB", "score": 40.0, "band": "o'rta"}]
+    assert W.check_risk(rows) == []  # first reading only sets the baseline
+    assert W.check_risk([{"iso": "UZB", "score": 47.5, "band": "o'rta"}])[0][1].count("▲") == 1
+    page = c.get("/watch").text
+    assert "Muminov" in page and "MUMINOV" in page and "Kuzatuv" in page
+
+
+def test_bot_links_account_and_shows_watch_list(bot, tmp_path, monkeypatch):
+    c, app_mod, telegram_bot, sent = bot
+    load_sample_lists(app_mod, tmp_path)
+    u = app_mod.accounts.create("akhad", "a-long-password", "admin")
+    code = app_mod.accounts.link_code(u["id"])
+    tg(c, telegram_bot, "/bogla WRONG1")
+    tg(c, telegram_bot, f"/bogla {code.lower()}")
+    assert "noto'g'ri" in texts(sent)[-2] and "akhad" in texts(sent)[-1]
+    assert app_mod.accounts.by_chat(42)["username"] == "akhad"
+    app_mod.watch.add(u["id"], "company", "Muminov")
+    tg(c, telegram_bot, "/mening")
+    assert "Muminov" in texts(sent)[-1] and "moslik" in texts(sent)[-1]
+    tg(c, telegram_bot, "/mening", chat=7)
+    assert "bog'lanmagan" in texts(sent)[-1]
+    # the account page's button opens the bot with /start bogla_CODE: one tap links it
+    other = app_mod.accounts.create("ali", "another-long-pw")
+    tg(c, telegram_bot, f"/start bogla_{app_mod.accounts.link_code(other['id'])}", chat=99)
+    assert app_mod.accounts.by_chat(99)["username"] == "ali" and "Bog'landi" in texts(sent)[-1]
+
+
+def test_scheduler_decides_what_is_due():
+    import scheduler
+
+    now = datetime(2026, 11, 26, 1, 30, tzinfo=UTC)  # 06:30 in Tashkent
+    due = scheduler.due(now, {})
+    assert "refresh" in due and "digest" not in due  # the digest waits for 07:00 Tashkent
+    assert "digest" in scheduler.due(now + timedelta(hours=1), {})
+    last = {"refresh": now - timedelta(minutes=10), "sanctions": now - timedelta(days=2)}
+    later = scheduler.due(now, last)
+    assert "refresh" not in later and "sanctions" not in later and "automap" in later
+
+
+def test_due_jobs_run_once_and_are_remembered(client, monkeypatch):
+    c, app_mod = client
+    calls = []
+
+    def fake(name):
+        async def run():
+            calls.append(name)
+            return {"ok": name}
+
+        return run
+
+    monkeypatch.setattr(app_mod, "JOBS", {k: fake(k) for k in app_mod.JOBS})
+    import asyncio
+
+    first = asyncio.run(app_mod.run_due_jobs())
+    assert "refresh" in first and first["sanctions"] == {"skipped": "kerak emas"}  # lists off in tests
+    second = asyncio.run(app_mod.run_due_jobs())
+    assert "refresh" not in second  # remembered in the database
+    assert calls.count("refresh") == 1
+    assert c.get("/healthz").json() == {"ok": True, "busy": False}
+
+
+def test_auto_map_is_made_and_the_time_machine_shows_changes(client, monkeypatch):
+    c, app_mod = client
+    import asyncio
+
+    monkeypatch.setattr(app_mod.analyze, "ai_available", lambda: True)
+    monkeypatch.setattr(app_mod, "_articles", lambda h, *a: [{"id": i} for i in range(40)])
+    first = {"summary": "s", "model": "m", "links": [{"from": "RUS", "to": "UKR", "type": "conflict", "title": "War"}]}
+    second = {"summary": "s", "model": "m", "links": [{"from": "CHN", "to": "UZB", "type": "trade", "title": "Gas"}]}
+    results = iter([first, second])
+    monkeypatch.setattr(app_mod.analyze, "write_links", lambda arts, lang, focus: next(results))
+    assert asyncio.run(app_mod.job_automap())["links"] == 1
+    assert asyncio.run(app_mod.job_automap())["links"] == 1
+    monkeypatch.undo()
+    maps = c.get("/api/maps").json()
+    assert len(maps) == 2 and all(m["auto"] == 1 for m in maps)
+    page = c.get("/map").text
+    assert "Vaqt mashinasi" in page and "1</b> ta yangi aloqa" in page and "yo'qoldi" in page
+    older = c.get(f"/map?id={maps[0]['id']}").text
+    assert "eng yangisi" in older
+
+
+def test_forecast_ledger_checks_and_scores(client, monkeypatch):
+    c, app_mod = client
+    P = app_mod.predictions
+    assert P.months_from("6 oy") == 6 and P.months_from("1-2 yil") == 18 and P.months_from("2 years") == 24
+    assert P.months_from("", 9) == 9 and P.months_from("tez orada") == P.DEFAULT_MONTHS
+    made = (datetime.now(UTC) - timedelta(days=400)).replace(microsecond=0).isoformat()
+    data = {"scenarios": [
+        {"title": "Gas deal signed", "probability": "high", "horizon": "1 yil", "trigger": "t", "outcome": "o"},
+        {"title": "Border closed", "chance": 20, "months": 6, "trigger": "t", "outcome": "o"},
+    ]}  # fmt: skip
+    assert P.record("CHN-UZB-uz", "CHN", "UZB", data, made) == 2
+    assert P.record("CHN-UZB-uz", "CHN", "UZB", data, made) == 0  # no duplicates
+    due = P.due(10)
+    assert len(due) == 2 and {d["chance"] for d in due} == {60, 20}
+    news = [{"id": 1, "title": "China and Uzbekistan sign gas deal", "summary": "", "url": "https://x/1",
+             "publisher": "Reuters", "published": collectors.now_iso()}]  # fmt: skip
+    replies = iter([
+        json.dumps({"outcome": "happened", "explanation": "Signed.", "evidence": [1]}),
+        json.dumps({"outcome": "not_happened", "explanation": "Open.", "evidence": []}),  # no evidence → unclear
+    ])  # fmt: skip
+    monkeypatch.setattr(app_mod.analyze, "complete", lambda *a, **k: (next(replies), "m"))
+    gas = next(d for d in due if d["title"] == "Gas deal signed")
+    border = next(d for d in due if d["title"] == "Border closed")
+    v1 = P.judge(gas, news)
+    v2 = P.judge(border, news)
+    assert v1["outcome"] == "happened" and v1["evidence"][0]["url"] == "https://x/1"
+    assert v2["outcome"] == "unclear"
+    P.save(gas["id"], v1)
+    P.save(border["id"], v2)
+    rows = {r["title"]: r for r in P.all_rows()}
+    assert rows["Gas deal signed"]["status"] == "happened"
+    assert rows["Border closed"]["status"] == "open" and rows["Border closed"]["due"] > collectors.now_iso()
+    st = P.stats()
+    assert st["scored"] == 1 and st["brier"] == round((gas["chance"] / 100 - 1) ** 2, 3) and st["hits"] == 100
+    page = c.get("/predictions").text
+    assert "Gas deal signed" in page and "amalga oshdi" in page and "Brier" in page
+
+
+def test_pair_analysis_feeds_the_ledger(client, monkeypatch):
+    c, app_mod = client
+    monkeypatch.setenv("GEMINI_API_KEY", "k")
+
+    async def no_news(a, b):
+        return []
+
+    monkeypatch.setattr(app_mod.pairs, "pair_news", no_news)
+    reply = {"score": 2, "label": "Partners", "essence": "Trade.", "summary": "S.", "asymmetry": "A.",
+             "good": [{"area": "Trade", "text": "Gas", "evidence": []}], "bad": [], "areas": [], "third_parties": [],
+             "scenarios": [{"title": "More gas", "probability": "high", "chance": 55, "months": 12, "horizon": "1 yil",
+                            "trigger": "t", "outcome": "o"}], "watch": [], "data_note": "", "numbers_note": ""}  # fmt: skip
+    monkeypatch.setattr(app_mod.analyze, "complete", lambda *a, **k: (json.dumps(reply), "m"))
+    c.post("/pair", data={"a": "UZB", "b": "CHN", "lang": "uz"})
+    rows = app_mod.predictions.all_rows()
+    assert [(r["title"], r["chance"]) for r in rows] == [("More gas", 55)]
+
+
+COMTRADE = {"data": [
+    {"partnerCode": 0, "primaryValue": 1000.0}, {"partnerCode": 643, "primaryValue": 300.0},
+    {"partnerCode": 156, "primaryValue": 500.0}, {"partnerCode": 899, "primaryValue": 150.0},
+    {"partnerCode": 398, "primaryValue": 50.0},
+]}  # fmt: skip
+
+
+def test_trade_flows_parse_and_api(client, monkeypatch):
+    c, app_mod = client
+    T = app_mod.trade
+    parsed = T.parse(COMTRADE["data"])
+    assert parsed["world"] == 1000.0 and parsed["partners"][0] == ["CHN", 500] and parsed["other"] == 150
+    calls = []
+
+    async def fake_flow(client_, reporter, period, flow):
+        calls.append((reporter, period, flow))
+        return COMTRADE["data"] if period == datetime.now(UTC).year - 2 else []
+
+    monkeypatch.setattr(T, "_flow", fake_flow)
+    real_sleep = T.asyncio.sleep
+    monkeypatch.setattr(T.asyncio, "sleep", lambda s: real_sleep(0))
+    r = c.get("/api/trade/UZB").json()
+    assert r["year"] == datetime.now(UTC).year - 2 and r["exports"]["partners"][1] == ["RUS", 300]
+    n = len(calls)
+    assert c.get("/api/trade/UZB").json()["year"] == r["year"] and len(calls) == n  # cached
+    assert c.get("/api/trade/XXX").status_code == 404
+
+
+def test_country_page(client, monkeypatch, tmp_path):
+    c, app_mod = client
+    load_sample_lists(app_mod, tmp_path)
+
+    async def wb(force=False):
+        return WB_SAMPLE
+
+    async def no_debt(iso):
+        return None
+
+    async def facts_for(iso):
+        return {"NY.GDP.MKTP.CD": {"value": 1.1e11, "year": "2025"}}
+
+    async def flows(iso, force=False):
+        return {
+            "iso": iso,
+            "year": 2025,
+            "exports": app_mod.trade.parse(COMTRADE["data"]),
+            "imports": app_mod.trade.parse([]),
+        }
+
+    monkeypatch.setattr(app_mod.risk, "world_bank", wb)
+    monkeypatch.setattr(app_mod.debt, "country_debt", no_debt)
+    monkeypatch.setattr(app_mod, "_country_facts", facts_for)
+    monkeypatch.setattr(app_mod.trade, "flows", flows)
+    page = c.get("/country/UZB").text
+    assert "O'zbekiston" in page and "Asosiy raqamlar" in page and "Xitoy" in page and "Sanksiyalar" in page
+    assert "Kuzatish" in page and "cglobe" in page
+    assert "Davlatlar" in c.get("/country").text
+    assert c.get("/country/XXX").status_code == 200  # the picker, not an error
+
+
+def test_embedding_quota_backoff_and_model_discovery(client, monkeypatch):
+    _, app_mod = client
+    E = app_mod.embed
+    now = datetime(2026, 11, 26, 10, 0, tzinfo=UTC)
+    until = E.back_off(
+        E.EmbedError(429, "RESOURCE_EXHAUSTED: Quota exceeded for metric EmbedContentRequestsPerDay"), now
+    )
+    assert until == datetime(2026, 11, 27, 8, 0, tzinfo=UTC)  # midnight Pacific
+    assert E.remaining(now) == 0 and E.remaining(until + timedelta(minutes=1)) == E.DAILY
+    assert E.back_off(E.EmbedError(429, "per minute"), now) == now + timedelta(minutes=2)
+    assert E.back_off(E.EmbedError(500, "x"), now) is None
+    E.spend(5, until + timedelta(minutes=1))
+    assert E.remaining(until + timedelta(minutes=1)) == E.DAILY - 5
+
+    class Resp:
+        def __init__(self, code, body):
+            self.status_code, self._b, self.text = code, body, json.dumps(body)
+
+        def json(self):
+            return self._b
+
+    class FakeClient:
+        def __init__(self, *a, **k):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def post(self, url, json=None, headers=None):
+            if "gemini-embedding-001" in url:
+                return Resp(404, {"error": {"status": "NOT_FOUND", "message": "gone"}})
+            return Resp(200, {"embeddings": [{"values": [0.1] * E.DIM} for _ in json["requests"]]})
+
+        def get(self, url, params=None, headers=None):
+            return Resp(200, {"models": [{"name": "models/text-x", "supportedGenerationMethods": ["generateContent"]},
+                                         {"name": "models/gemini-embedding-002", "supportedGenerationMethods": ["embedContent"]}]})  # fmt: skip
+
+    monkeypatch.setenv("GEMINI_API_KEY", "k")
+    monkeypatch.setattr(E.httpx, "Client", FakeClient)
+    assert len(E.embed(["a", "b"])) == 2 and E.current_model() == "models/gemini-embedding-002"
+
+
+def test_gzip_and_static_caching(client):
+    c, _ = client
+    r = c.get("/", headers={"accept-encoding": "gzip"})
+    assert r.headers.get("content-encoding") == "gzip"
+    assert c.get("/static/style.css?v=1").headers["cache-control"].startswith("public, max-age=")
+    assert c.get("/static/style.css").headers["cache-control"] == "no-cache"
+
+
+def test_backup_round_trip(client, tmp_path, monkeypatch):
+    c, app_mod = client
+    app_mod.watch.add(0, "country", "UZB")
+    dump = c.get("/admin/export")
+    assert dump.status_code == 200 and "attachment" in dump.headers["content-disposition"]
+    data = dump.json()
+    assert data["tables"]["watch_items"][0]["value"] == "UZB"
+    with app_mod.db.tx() as conn:
+        conn.execute("DELETE FROM watch_items")
+    r = c.post(
+        "/admin/import",
+        files={"file": ("b.json", json.dumps(data).encode(), "application/json")},
+        follow_redirects=False,
+    )
+    assert "Tiklandi" in unquote_plus(r.headers["location"])
+    assert app_mod.watch.items(0)[0]["value"] == "UZB"
+
+
+def test_new_pages_render(client):
+    c, _ = client
+    for path in ["/watch", "/predictions", "/predictions?show=open", "/account", "/admin", "/login", "/map?trade=UZB"]:
+        r = c.get(path)
+        assert r.status_code == 200, path
+    assert "bottomnav" in c.get("/").text and "data-pdf" not in c.get("/").text

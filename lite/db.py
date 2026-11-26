@@ -7,11 +7,13 @@ default), so the database can be shared with other apps without touching their t
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import re
 import sqlite3
 import threading
+import time
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -146,6 +148,56 @@ CREATE TABLE IF NOT EXISTS framings (
     model       TEXT NOT NULL,
     data        TEXT NOT NULL           -- JSON {story, facts, camps, items, ...}
 );
+CREATE TABLE IF NOT EXISTS users (
+    id          INTEGER PRIMARY KEY,
+    username    TEXT NOT NULL UNIQUE,
+    pw          TEXT NOT NULL,          -- pbkdf2$rounds$salt$hash
+    role        TEXT NOT NULL DEFAULT 'user',   -- admin | user
+    created     TEXT NOT NULL,
+    last_login  TEXT,
+    tg_chat     TEXT,                   -- Telegram chat linked with /bogla
+    tg_code     TEXT,
+    tg_code_exp TEXT
+);
+CREATE TABLE IF NOT EXISTS sessions (
+    token       TEXT PRIMARY KEY,       -- sha256 of the cookie value, never the value itself
+    user_id     INTEGER NOT NULL,
+    created     TEXT NOT NULL,
+    expires     TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS watch_items (
+    id          INTEGER PRIMARY KEY,
+    user_id     INTEGER NOT NULL,       -- 0 = the open site with no accounts
+    kind        TEXT NOT NULL,          -- country | company
+    value       TEXT NOT NULL,          -- ISO3 or a name as typed
+    created     TEXT NOT NULL,
+    state       TEXT NOT NULL DEFAULT '{}',   -- JSON: known matches, last score
+    UNIQUE (user_id, kind, value)
+);
+CREATE TABLE IF NOT EXISTS alerts (
+    id          INTEGER PRIMARY KEY,
+    user_id     INTEGER NOT NULL,
+    created     TEXT NOT NULL,
+    kind        TEXT NOT NULL,
+    text        TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS alerts_user ON alerts (user_id, created);
+CREATE TABLE IF NOT EXISTS predictions (
+    id          INTEGER PRIMARY KEY,
+    ref         TEXT NOT NULL,          -- the pair key the scenario came from
+    a           TEXT NOT NULL,
+    b           TEXT NOT NULL,
+    title       TEXT NOT NULL,
+    detail      TEXT NOT NULL DEFAULT '',
+    chance      INTEGER NOT NULL,       -- 0..100, as the analysis gave it
+    made        TEXT NOT NULL,
+    due         TEXT NOT NULL,
+    status      TEXT NOT NULL DEFAULT 'open',   -- open | happened | not_happened | partly | unclear
+    checked     TEXT,
+    verdict     TEXT NOT NULL DEFAULT '',
+    evidence    TEXT NOT NULL DEFAULT '[]',
+    UNIQUE (ref, made, title)
+);
 CREATE TABLE IF NOT EXISTS ai_usage (
     day         TEXT PRIMARY KEY,       -- YYYY-MM-DD, UTC
     calls       INTEGER NOT NULL DEFAULT 0
@@ -156,6 +208,7 @@ CREATE TABLE IF NOT EXISTS ai_usage (
 MIGRATIONS = [
     "ALTER TABLE pairs ADD COLUMN c TEXT NOT NULL DEFAULT ''",
     "ALTER TABLE articles ADD COLUMN emb TEXT",  # JSON meaning vector of the headline (embed.py)
+    "ALTER TABLE maps ADD COLUMN auto INTEGER NOT NULL DEFAULT 0",  # 1 = made by the daily schedule
 ]
 
 
@@ -188,6 +241,12 @@ class _PgConn:
     def commit(self):
         self._conn.commit()
 
+    def rollback(self):
+        self._conn.rollback()
+
+    def usable(self) -> bool:
+        return not self._conn.closed and not self._conn.broken
+
     def close(self):
         self._conn.close()
 
@@ -202,6 +261,8 @@ def connect():
             row_factory=dict_row,
             connect_timeout=15,
             options=f"-c search_path={PG_SCHEMA}",
+            keepalives=1,
+            keepalives_idle=30,
         )
         return _PgConn(conn)
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -212,15 +273,60 @@ def connect():
     return conn
 
 
+# One connection, reused: every query already waits for _lock, and opening a PostgreSQL connection
+# per query (TLS, auth) cost more than the query itself.
+_conn = None
+_last_used = 0.0
+IDLE_PING = 30  # seconds; a connection idle longer is checked before use
+
+
+def _usable(conn) -> bool:
+    if conn is None:
+        return False
+    if IS_PG:
+        if not conn.usable():
+            return False
+        if time.monotonic() - _last_used > IDLE_PING:
+            try:  # the server may have closed an idle connection; find out before the real query
+                conn.execute("SELECT 1").fetchone()
+                conn.commit()
+            except Exception:
+                return False
+    return True
+
+
+def close() -> None:
+    global _conn
+    with _lock:
+        if _conn is not None:
+            with contextlib.suppress(Exception):
+                _conn.close()
+        _conn = None
+
+
 @contextmanager
 def tx():
+    global _conn, _last_used
     with _lock:
-        conn = connect()
+        if not _usable(_conn):
+            if _conn is not None:
+                with contextlib.suppress(Exception):
+                    _conn.close()
+            _conn = connect()
+        conn = _conn
         try:
             yield conn
             conn.commit()
+        except BaseException:
+            try:
+                conn.rollback()
+            except Exception:  # the connection itself broke: open a new one next time
+                with contextlib.suppress(Exception):
+                    conn.close()
+                _conn = None
+            raise
         finally:
-            conn.close()
+            _last_used = time.monotonic()
 
 
 def init(default_sources: list[dict]) -> None:

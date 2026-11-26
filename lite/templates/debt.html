@@ -23,7 +23,7 @@
 
 {% if iso and f %}
 <section class="debt">
-  <h2>{{ name(iso) }}</h2>
+  <h2>{{ name(iso) }} <button type="button" class="ghost small noprint" data-pdf="WorldScope - {{ name(iso) }} qarzlari">📄 PDF</button></h2>
 
   {% if f.debt_rows %}
   <h3>Qarz dinamikasi</h3>

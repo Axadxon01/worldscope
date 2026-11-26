@@ -23,7 +23,15 @@
       {% if error %}<p class="warn">{{ error }}</p>{% endif %}
 
       <div class="modes" role="group" aria-label="Ko'rinish">
-        <button type="button" data-mode="globe">🌐 Globus</button><button type="button" data-mode="flat">🗺 Tekis xarita</button>
+        <button type="button" data-mode="globe">🌐 Globus</button><button type="button" data-mode="trade">🚢 Savdo</button><button type="button" data-mode="flat">🗺 Tekis xarita</button>
+      </div>
+      <div id="tradebox" hidden>
+        <div class="row">
+          <select id="tradeiso" title="Davlat">{% for iso, n in names.items()|sort(attribute=1) if iso in payload_isos %}<option value="{{ iso }}">{{ n }}</option>{% endfor %}</select>
+          <div class="modes" role="group" aria-label="Oqim"><button type="button" data-flow="exports" class="on">Eksport</button><button type="button" data-flow="imports">Import</button></div>
+        </div>
+        <p class="muted small" id="tradenote">Davlatni tanlang: uning tovar savdosi hamkorlar bo'yicha globusda oqim bo'lib chiziladi (UN Comtrade).</p>
+        <ol class="linklist" id="tradelist"></ol>
       </div>
       <div class="modes" role="group" aria-label="Davlatlar rangi" id="layers">
         <button type="button" data-layer="" class="on">Aloqalar</button><button type="button" data-layer="risk">Xavf indeksi</button><button type="button" data-layer="sanctions">Sanksiyalar</button>
@@ -32,6 +40,22 @@
 
       <div id="overview">
         {% if current %}
+          {% if timeline|length > 1 %}
+          {% set pos = (timeline|map(attribute='id')|list).index(current.id) %}
+          <div class="timemachine" aria-label="Vaqt mashinasi">
+            <div class="tmrow">
+              {% if pos > 0 %}<a class="ghost small" href="/map?id={{ timeline[pos - 1].id }}" title="Oldingi xarita">◀</a>{% endif %}
+              <input type="range" id="tm" min="0" max="{{ timeline|length - 1 }}" value="{{ pos }}" aria-label="Xarita sanasi">
+              {% if pos < timeline|length - 1 %}<a class="ghost small" href="/map?id={{ timeline[pos + 1].id }}" title="Keyingi xarita">▶</a>{% endif %}
+            </div>
+            <p class="small"><b id="tmdate">{{ current.created[:10] }}</b> · {{ pos + 1 }}/{{ timeline|length }} xarita{% if current.auto %} · avtomatik{% endif %}
+              {% if pos < timeline|length - 1 %} · <a href="/map">eng yangisi →</a>{% endif %}</p>
+            {% if diff %}<p class="small">Oldingi xaritadan ({{ diff.since[:10] }}) beri: <b>{{ diff.new|length }}</b> ta yangi aloqa{% if diff.gone %}, <b>{{ diff.gone|length }}</b> tasi yo'qoldi{% endif %}.</p>
+              {% if diff.gone %}<details class="small"><summary>Yo'qolgan aloqalar</summary><ul class="plain">{% for g in diff.gone %}<li>{{ names.get(g.from, g.from) }} → {{ names.get(g.to, g.to) }}: {{ g.title }}</li>{% endfor %}</ul></details>{% endif %}
+            {% endif %}
+          </div>
+          <script>const TIMELINE = {{ timeline|map(attribute='id')|list|tojson }}, TDATES = {{ timeline|map(attribute='created')|list|tojson }};</script>
+          {% endif %}
           <p class="muted small">{{ current.created[:16].replace('T',' ') }} UTC · {{ current.hours }} soat · {{ current.model }}{% if current.focus %} · {{ current.focus }}{% endif %}</p>
           {% if current.data.summary %}<p class="summary">{{ current.data.summary }}</p>{% endif %}
           <ol class="linklist" id="linklist"></ol>
@@ -228,7 +252,8 @@ declutter();
 const list = document.getElementById("linklist");
 if (list) DATA.links.forEach((l, i) => {
   const li = document.createElement("li");
-  li.innerHTML = `<span class="dot" style="background:${COLORS[l.type]}"></span><b>${esc(DATA.names[l.from])} → ${esc(DATA.names[l.to])}</b><br><span>${esc(l.title)}</span>`;
+  const fresh = (DATA.fresh || []).includes(i) ? ' <span class="chip c">yangi</span>' : "";
+  li.innerHTML = `<span class="dot" style="background:${COLORS[l.type]}"></span><b>${esc(DATA.names[l.from])} → ${esc(DATA.names[l.to])}</b>${fresh}<br><span>${esc(l.title)}</span>`;
   li.onclick = () => show(i);
   list.appendChild(li);
 });
@@ -274,18 +299,68 @@ let G = null, mode = "globe";
 try { mode = localStorage.getItem("ws-mapmode") || "globe"; } catch (e) {}
 function setMode(m) {
   mode = m;
-  try { localStorage.setItem("ws-mapmode", m); } catch (e) {}
-  document.getElementById("globebox").hidden = m !== "globe";
+  if (m !== "trade") {
+    try { localStorage.setItem("ws-mapmode", m); } catch (e) {}
+    if (location.search.includes("trade=")) history.replaceState(null, "", "/map");
+  }
+  const onGlobe = m === "globe" || m === "trade";
+  document.getElementById("globebox").hidden = !onGlobe;
   document.getElementById("layers").hidden = m !== "globe";
+  document.getElementById("tradebox").hidden = m !== "trade";
+  document.getElementById("overview").hidden = m === "trade";
   document.querySelectorAll("[data-mode]").forEach(b => b.classList.toggle("on", b.dataset.mode === m));
-  if (m === "globe" && !G) {
+  const after = () => { if (m === "trade") loadTrade(); else if (G) { G.setLinks(DATA.links); G.clearFocus(); } };
+  if (G) { after(); return; }
+  if (onGlobe) {
     fetch(new URL("/static/world/countries-110m.json", location.origin)).then(r => r.json()).then(topo => {
       G = WSGlobe(document.getElementById("globe"), {topo, geo: DATA.geo, coords: DATA.coords, names: DATA.names,
         links: DATA.links, co: DATA.co, colors: COLORS, panel: 380, onLink: i => show(i), onCountry: iso => G.focusCountry(iso)});
       G.setSigns(document.getElementById("showSigns").checked);
       if (fromHash >= 1 && fromHash <= DATA.links.length) G.focusLink(fromHash - 1);
+      after();
     });
   }
+}
+// trade flows: a country's goods exports or imports by partner, as arcs whose width follows the value
+const tradeCache = {};
+let flow = "exports";
+const usd = v => v >= 1e9 ? (v / 1e9).toFixed(1) + " mlrd $" : v >= 1e6 ? Math.round(v / 1e6) + " mln $" : Math.round(v / 1e3) + " ming $";
+async function loadTrade() {
+  const sel = document.getElementById("tradeiso"), iso = sel.value, note = document.getElementById("tradenote"), list = document.getElementById("tradelist");
+  history.replaceState(null, "", "/map?trade=" + iso);
+  if (!tradeCache[iso]) {
+    note.textContent = "UN Comtrade'dan olinmoqda… (birinchi marta 10–20 soniya)";
+    list.innerHTML = "";
+    try {
+      const r = await fetch(new URL("/api/trade/" + iso, location.origin));
+      tradeCache[iso] = await r.json();
+    } catch (e) { tradeCache[iso] = {year: null, error: "tarmoq xatosi"}; }
+  }
+  if (sel.value !== iso || mode !== "trade") return;
+  const t = tradeCache[iso], side = t[flow];
+  if (!t.year || !side) {
+    note.textContent = t.error ? "Comtrade hozir javob bermadi, birozdan keyin qayta urinib ko'ring." : "Bu davlat so'nggi yillar uchun UN Comtrade'ga ma'lumot bermagan.";
+    G.setLinks([]); list.innerHTML = ""; return;
+  }
+  const top = side.partners.slice(0, 15), max = top.length ? top[0][1] : 1;
+  const color = flow === "exports" ? "#16a34a" : "#3b82f6";
+  const links = top.map(([p, v], n) => ({from: flow === "exports" ? iso : p, to: flow === "exports" ? p : iso, type: "trade",
+    confidence: "high", color, width: 1.2 + 6 * Math.sqrt(v / max), sign: n < 5, title: usd(v), value: v}));
+  G.setLinks(links); G.focusCountry(iso);
+  const share = v => side.world ? ` · ${Math.round(100 * v / side.world)}%` : "";
+  note.textContent = `${t.year}-yil, ${flow === "exports" ? "eksport" : "import"}: jami ${side.world ? usd(side.world) : "—"}. Chiziq qalinligi — savdo hajmi.`;
+  list.innerHTML = top.map(([p, v]) => `<li><span class="dot" style="background:${color}"></span><b>${esc(DATA.names[p] || p)}</b> — ${usd(v)}${share(v)}</li>`).join("");
+}
+document.getElementById("tradeiso").onchange = loadTrade;
+document.querySelectorAll("[data-flow]").forEach(b => b.onclick = () => {
+  flow = b.dataset.flow;
+  document.querySelectorAll("[data-flow]").forEach(x => x.classList.toggle("on", x === b));
+  loadTrade();
+});
+const tm = document.getElementById("tm");
+if (tm) {
+  tm.oninput = () => { document.getElementById("tmdate").textContent = TDATES[tm.value].slice(0, 10); };
+  tm.onchange = () => { location.href = "/map?id=" + TIMELINE[tm.value]; };
 }
 document.querySelectorAll("[data-mode]").forEach(b => b.onclick = () => setMode(b.dataset.mode));
 document.getElementById("showSigns").onchange = e => G && G.setSigns(e.target.checked);
@@ -303,6 +378,8 @@ document.querySelectorAll("[data-layer]").forEach(b => b.onclick = async () => {
 const showFlat = show, hideFlat = hideDetail;
 show = (i, instant) => { showFlat(i, instant); if (G && mode === "globe") G.focusLink(i); };
 hideDetail = () => { hideFlat(); if (G) G.clearFocus(); };
+if (DATA.trade) { document.getElementById("tradeiso").value = DATA.trade; mode = "trade"; }
+else { try { document.getElementById("tradeiso").value = "UZB"; } catch (e) {} }
 setMode(mode);
 
 document.getElementById("collapse").onclick = () => document.getElementById("panel").classList.toggle("collapsed");

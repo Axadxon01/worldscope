@@ -65,9 +65,20 @@ async def send(chat_id: str | int, text: str) -> bool:
     return bool(res.get("ok"))
 
 
+_ME: dict = {}
+
+
+def username() -> str:
+    """The bot's @name, learned from Telegram at start-up (or TELEGRAM_BOT_NAME), for t.me links."""
+    return os.environ.get("TELEGRAM_BOT_NAME", "") or _ME.get("username", "")
+
+
 async def setup_webhook() -> None:
     if not enabled():
         return
+    me = await api("getMe")
+    if me.get("ok"):
+        _ME.update(me.get("result") or {})
     await api(
         "setWebhook",
         url=f"{PUBLIC_URL}/telegram/webhook",
@@ -85,6 +96,8 @@ async def setup_webhook() -> None:
             {"command": "qarz", "description": "Davlat qarzlari tahlili: /qarz UZB"},
             {"command": "xavf", "description": "Davlat xavf indeksi: /xavf UZB"},
             {"command": "sanksiya", "description": "Sanksiya ro'yxatlarida qidirish: /sanksiya Ivanov"},
+            {"command": "mening", "description": "Mening kuzatuv ro'yxatim"},
+            {"command": "bogla", "description": "Sayt akkauntini bog'lash: /bogla KOD"},
             {"command": "stop", "description": "Kunlik xabarlarni to'xtatish"},
             {"command": "yordam", "description": "Buyruqlar"},
         ],
@@ -139,6 +152,8 @@ HELP = """<b>WorldScope</b> — xalqaro yangiliklar tahlili.
 /qarz UZB — davlat qarzlari va qarzdan keyingi o'zgarishlar
 /xavf UZB — davlat xavf indeksi (0–100) va uning tarkibi
 /sanksiya Nom — OFAC, BMT, YeI va Buyuk Britaniya ro'yxatlarida nom qidirish
+/bogla KOD — saytdagi akkauntni shu chatga bog'lash (kod "Profil" sahifasida)
+/mening — kuzatayotgan davlat va kompaniyalaringiz holati
 /stop — kunlik xabarlarni to'xtatish, /start — qayta yoqish
 
 Har kuni ertalab qisqa digest keladi. Kuzatilgan juftlik har hafta qayta tahlil qilinadi; munosabat keskin
@@ -186,6 +201,8 @@ async def handle(update: dict, analyze_pair=None) -> None:
                 (chat_id, now, name),
             )
         await send(chat_id, "Xush kelibsiz! Endi har kuni ertalab asosiy voqealarni yuboraman.\n\n" + HELP)
+        if args.strip().lower().startswith("bogla_"):  # t.me/<bot>?start=bogla_CODE from the account page
+            await link_account(chat_id, args.strip()[6:])
     elif cmd == "/stop":
         with db.tx() as c:
             c.execute("UPDATE tg_subscribers SET active = 0 WHERE chat_id = ?", (chat_id,))
@@ -247,6 +264,10 @@ async def handle(update: dict, analyze_pair=None) -> None:
         await send(chat_id, await risk_text(iso))
     elif cmd == "/sanksiya":
         await send(chat_id, sanctions_text(args.strip()))
+    elif cmd == "/bogla":
+        await link_account(chat_id, args.strip())
+    elif cmd == "/mening":
+        await send(chat_id, mine_text(str(chat_id)))
     elif cmd == "/kuzatuvlar":
         rows = db.rows("SELECT a, b, key FROM tg_follows WHERE chat_id = ? ORDER BY created", (chat_id,))
         if not rows:
@@ -279,6 +300,47 @@ async def risk_text(iso: str) -> str:
         v = "—" if c["value"] is None else f"{c['value']:.0f}"
         lines.append(f"• {esc(c['label'])} ({c['weight']}%): {v}")
     lines += ["", f"{PUBLIC_URL}/risk?c={iso}"]
+    return "\n".join(lines)
+
+
+async def link_account(chat_id, code: str) -> None:
+    import accounts
+
+    u = accounts.link_chat(code, str(chat_id))
+    if u:
+        await send(
+            chat_id, f"✅ Bog'landi: <b>{esc(u['username'])}</b>. Kuzatuv ogohlantirishlari endi shu yerga keladi."
+        )
+    else:
+        await send(chat_id, "Kod noto'g'ri yoki eskirgan. Saytda <b>Profil</b> sahifasidan yangi kod oling.")
+
+
+def mine_text(chat_id: str) -> str:
+    import accounts
+    import sanctions
+    import watch
+
+    u = accounts.by_chat(chat_id)
+    if not u:
+        return (
+            "Bu chat saytdagi akkauntga bog'lanmagan. "
+            "Saytda <b>Profil</b> → kod oling va <code>/bogla KOD</code> yuboring."
+        )
+    items = watch.items(u["id"])
+    if not items:
+        return f"Kuzatuv ro'yxati bo'sh. Saytda qo'shing: {PUBLIC_URL}/watch"
+    lines = [f"📌 <b>{esc(u['username'])}: kuzatuv ro'yxati</b>", ""]
+    for it in items:
+        if it["kind"] == "country":
+            st = it["state"]
+            known = st.get("score") is not None
+            score = f"{st['score']} ({esc(st.get('band', ''))})" if known else "hali tekshirilmagan"
+            lines.append(f"🧭 {esc(analyze.display_name(it['value']))}: xavf {score}")
+        else:
+            n = len(watch.matches(it["value"])) if sanctions.loaded() else 0
+            found = f"⚠️ {n} ta moslik" if n else "moslik yo'q"
+            lines.append(f"⚖️ {esc(it['value'])}: {found}")
+    lines += ["", f"{PUBLIC_URL}/watch"]
     return "\n".join(lines)
 
 

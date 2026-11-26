@@ -158,7 +158,8 @@ Return JSON only:
  "bad":  [{{"area": "...", "text": "1-2 sentences", "evidence": [n]}}],
  "areas": [{{"area": "...", "state": "positive|mixed|negative|none", "note": "one sentence"}}],
  "third_parties": [{{"iso3": "XXX", "role": "one sentence on how this country shapes the pair"}}],
- "scenarios": [{{"title": "...", "probability": "high|medium|low", "horizon": "e.g. 1-2 yil",
+ "scenarios": [{{"title": "...", "probability": "high|medium|low", "chance": integer 0-100,
+                "horizon": "e.g. 1-2 yil", "months": integer, the months until it should be visible,
                 "trigger": "what would set it off", "outcome": "2-3 sentences: what it would lead to,
                 for each side and for the region"}}],
  "watch": ["short signal to watch", "..."],
@@ -169,7 +170,8 @@ Return JSON only:
 Lists: good 2-6, bad 1-6 (say honestly if there is little friction), areas exactly these five in this
 order: Diplomatiya, Iqtisodiyot va savdo, Xavfsizlik, Energetika va resurslar, Madaniyat va odamlar
 (translate the area names into the output language), third_parties 0-3, scenarios exactly 3 (the most
-likely course, a better one, a worse one, with probabilities that make sense together), watch 2-4.
+likely course, a better one, a worse one, with probabilities that make sense together; their "chance"
+values sum to about 100, and "months" is 1-36), watch 2-4.
 Forecasts are reasoned scenarios, not certainties: base each on interests and trends you named.
 Hard figures (World Bank, UN Comtrade) may be given: use them for size, dependence and trade weight,
 say "Jahon banki" / "UN Comtrade" when you rely on one, and never invent other figures.
@@ -251,6 +253,8 @@ def _clean_pair(raw: dict, items: list[dict], a: str, b: str) -> dict:
                 "title": str(x.get("title", ""))[:120],
                 "probability": x.get("probability") if x.get("probability") in probs else "medium",
                 "horizon": str(x.get("horizon", ""))[:40],
+                "chance": _int_in(x.get("chance"), 0, 100),
+                "months": _int_in(x.get("months"), 1, 36),
                 "trigger": str(x.get("trigger", ""))[:300],
                 "outcome": str(x.get("outcome", ""))[:700],
             }
@@ -275,6 +279,13 @@ def _clean_pair(raw: dict, items: list[dict], a: str, b: str) -> dict:
     if not out["essence"] or not (out["good"] or out["bad"]):
         raise analyze.AIError("AI to'liq tahlil qaytarmadi, qayta urinib ko'ring")
     return out
+
+
+def _int_in(v, lo: int, hi: int) -> int | None:
+    try:
+        return max(lo, min(hi, round(float(v))))
+    except (TypeError, ValueError):
+        return None
 
 
 def _score(v) -> int:

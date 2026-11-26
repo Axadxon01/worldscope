@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block title %}Bashoratlar hisobi · WorldScope Lite{% endblock %}
+{% block body %}
+<header class="countryhead">
+  <h2>Bashoratlar hisobi</h2>
+  <button type="button" class="ghost noprint" data-pdf="WorldScope - bashoratlar hisobi">📄 PDF</button>
+</header>
+{% if msg %}<p class="ok">{{ msg }}</p>{% endif %}
+{% if error %}<p class="warn">{{ error }}</p>{% endif %}
+<p class="muted small">"Ikki davlat" tahlilidagi har bir ssenariy shu yerda ehtimoli va muddati bilan yozib qo'yiladi. Muddat o'tgach, AI o'sha davrdagi
+  yangiliklar bilan solishtirib, ssenariy amalga oshgan-oshmaganini manba bilan aniqlaydi (kuniga {{ per_day }} tagacha). Shunda AI bashoratlariga
+  qanchalik ishonish mumkinligi raqamda ko'rinadi.</p>
+
+<div class="statgrid">
+  <div class="box"><b>{{ st.total }}</b><span>jami bashorat</span></div>
+  <div class="box"><b>{{ st.open }}</b><span>muddati kutilmoqda</span></div>
+  <div class="box"><b>{{ st.scored }}</b><span>tekshirilgan</span></div>
+  <div class="box"><b>{{ st.hits ~ "%" if st.hits is not none else "—" }}</b><span>to'g'ri chiqqan (≥50% deganlari bo'ldi, &lt;50% deganlari bo'lmadi)</span></div>
+  <div class="box"><b>{{ st.brier if st.brier is not none else "—" }}</b><span>Brier bali (0 — mukammal, 0.25 — tasodifiy)</span></div>
+</div>
+
+{% if st.buckets %}
+<h3>Ehtimollar qanchalik to'g'ri</h3>
+<table class="facts small-t">
+  <thead><tr><th>AI aytgan ehtimol</th><th>Bashoratlar</th><th>O'rtacha aytilgan</th><th>Haqiqatda bo'lgani</th></tr></thead>
+  <tbody>{% for b in st.buckets %}<tr><td>{{ b.range }}</td><td>{{ b.n }}</td><td>{{ b.said }}%</td><td><b>{{ b.came }}%</b></td></tr>{% endfor %}</tbody>
+</table>
+<p class="muted small">Yaxshi kalibrlangan bashoratchida ikki ustun bir-biriga yaqin bo'ladi.</p>
+{% elif st.total %}
+<p class="muted">Hali hech bir bashoratning muddati o'tmagan. Birinchi tekshiruvlar muddat kelganda avtomatik boshlanadi.</p>
+{% else %}
+<p class="muted">Hali bashorat yo'q. <a href="/pair">Ikki davlat</a> tahlilini yarating — uning ssenariylari shu yerga yoziladi.</p>
+{% endif %}
+
+<div class="tabs">
+  <a href="/predictions" class="{{ 'on' if show not in ('open', 'done') }}">Hammasi</a>
+  <a href="/predictions?show=open" class="{{ 'on' if show == 'open' }}">Kutilmoqda</a>
+  <a href="/predictions?show=done" class="{{ 'on' if show == 'done' }}">Tekshirilgan</a>
+</div>
+{% if rows %}
+<table class="facts preds">
+  <thead><tr><th>Juftlik</th><th>Ssenariy</th><th>Ehtimol</th><th>Muddat</th><th>Natija</th></tr></thead>
+  <tbody>{% for p in rows %}
+  <tr class="st-{{ p.status }}">
+    <td class="small"><a href="/pair?a={{ p.a }}&b={{ p.b }}">{{ name(p.a) }} ↔ {{ name(p.b) }}</a><br><span class="muted">{{ p.made[:10] }}</span></td>
+    <td><b>{{ p.title }}</b>{% if p.detail %}<div class="small muted">{{ p.detail[:260] }}{% if p.detail|length > 260 %}…{% endif %}</div>{% endif %}</td>
+    <td>{{ p.chance }}%</td>
+    <td class="small">{{ p.due[:10] }}</td>
+    <td class="small">
+      <span class="verdict v-{{ p.status }}">{{ STATUS[p.status] }}</span>
+      {% if p.status != 'open' and p.verdict %}<div>{{ p.verdict }}</div>{% endif %}
+      {% for e in p.evidence %}<div><a href="{{ e.url }}" target="_blank" rel="noopener noreferrer">[{{ e.n }}] {{ e.title[:80] }}</a> <span class="muted">{{ e.publisher }}</span></div>{% endfor %}
+      {% if p.status == 'open' and p.due <= now and ai %}<form method="post" action="/predictions/{{ p.id }}/check" class="noprint"><button class="ghost small">Hozir tekshirish</button></form>{% endif %}
+    </td>
+  </tr>{% endfor %}</tbody>
+</table>
+{% endif %}
+{% endblock %}
