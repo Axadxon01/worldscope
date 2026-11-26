@@ -78,7 +78,7 @@ map.attributionControl.setPrefix(false).addAttribution('Chegaralar: <a href="htt
 map.createPane("countries").style.zIndex = 200;
 
 // Country shapes are served by this site (Natural Earth, public domain): no tile service, no API key.
-fetch("/static/world/countries-110m.json").then(r => r.json()).then(topo => {
+fetch(new URL("/static/world/countries-110m.json", location.origin)).then(r => r.json()).then(topo => {
   const geo = topojson.feature(topo, topo.objects.countries);
   // Rings that cross the 180° meridian (Russia's far east, Fiji) would otherwise be drawn as a band
   // across the whole map; shift their western half by 360° so each ring stays in one piece.

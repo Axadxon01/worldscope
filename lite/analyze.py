@@ -871,8 +871,8 @@ LINK_TYPES = {
 }
 
 LINKS_SYSTEM = """You are the geopolitical analyst of WorldScope. From a numbered list of recent news
-items, find the most significant relationships between countries and explain the logic underneath
-each one, so that a student who reads only the map understands what is really going on.
+items, find the most significant relationships between countries and explain the strategic logic
+underneath each one, so that a student who reads only the map understands what is really going on and why.
 
 Return JSON only, in this shape:
 {{"summary": "...", "links": [
@@ -885,19 +885,28 @@ Fields:
   initiates; "to" is the side it acts towards. For international bodies use the member state that acts,
   or skip the link.
 - type: one of {types}.
-- title: at most 8 words naming what happened.
-- bubble: one sentence of at most 22 words giving the essence, the "why it matters" a reader should
-  take away. Example of the depth wanted: "Kazakhstan widens ties with the US to lessen its dependence
-  on Russia" rather than "Kazakhstan and the US signed a deal".
-- logic: 2-4 sentences: the underlying interest, motive or strategy (economic, security, energy,
-  domestic politics), and the likely consequence. This is analysis: ground it in the cited items and in
-  well-established background, and do not invent events, figures or quotes.
+- title: at most 8 words naming what happened (the fact).
+- bubble: the most important field. One sentence, at most 22 words, that states the MOTIVE or STRATEGIC
+  MEANING, not the event itself. It must answer "why is this happening / what is this country really
+  after?" and should contain a purpose or cause ("to ...", "in order to ...", "because ...", "as a hedge
+  against ..."). Never repeat the title.
+    Weak (just the event): "Kazakhstan and the US signed a critical minerals deal."
+    Strong (the logic):    "Kazakhstan courts US investment to lessen its economic dependence on Russia
+                            and balance China."
+    Weak:   "Switzerland returns frozen assets to Uzbekistan."
+    Strong: "Switzerland returns Karimova's assets to prove its banks no longer shelter kleptocrats, and
+             Tashkent gains a showcase of its anti-corruption reforms."
+- logic: 2-4 sentences: the underlying interests (economic, security, energy, transit, domestic politics),
+  the wider context (which third power this balances or affects), and the likely consequence. This is
+  analysis: ground it in the cited items and in well-established background knowledge; do not invent
+  events, figures or quotes.
 - evidence: item numbers that report the link. At least one.
 - confidence: high when several independent outlets report it, medium for one reliable outlet,
   low when it rests on one party's own claim or a single Telegram channel.
-- summary: 2-3 sentences on the overall pattern the map shows.
+- summary: 2-3 sentences on the overall pattern the map shows (who is aligning with whom, and why).
 
-Give 6 to 14 links, most important first, and prefer links that involve {focus_hint}.
+Give 8 to 14 links, most important first. Cover the whole picture: about half on {focus_hint},
+the rest on the most consequential links elsewhere in the world (wars, sanctions, great-power moves).
 Skip items that do not describe a relationship between two countries. Write every text field in {lang}."""
 
 
@@ -961,7 +970,7 @@ def write_links(articles: list[dict], lang: str, focus: str = "") -> dict:
     system = LINKS_SYSTEM.format(
         types=", ".join(LINK_TYPES),
         lang=LANG_NAMES.get(lang, "English"),
-        focus_hint=focus or "Central Asia, Uzbekistan and the major powers",
+        focus_hint=focus or "Central Asia and its relations with the major powers",
     )
     task = "Return the JSON." + (f" Focus on: {focus}." if focus else "")
     text, model = complete(system, "News items:\n" + "\n".join(numbered(items)) + "\n\n" + task, json_mode=True)
