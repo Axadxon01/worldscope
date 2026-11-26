@@ -1,0 +1,103 @@
+{% extends "base.html" %}
+{% block title %}{% if detail %}{{ detail.name }} · {% endif %}Xavf indeksi · WorldScope Lite{% endblock %}
+{% block mainclass %}wide{% endblock %}
+{% block head %}
+<link rel="stylesheet" href="/static/leaflet/leaflet.css">
+<script src="/static/leaflet/leaflet.js"></script>
+<script src="/static/world/topojson-client.min.js"></script>
+{% endblock %}
+{% macro pill(r) %}<span class="score" style="background:{{ r.color }}">{{ r.score if r.score is not none else '—' }}</span>{% endmacro %}
+{% block body %}
+<h2>Davlat xavf indeksi <span class="muted small">{{ scored }} ta davlat baholandi · 0 = past xavf, 100 = juda yuqori</span></h2>
+{% if error %}<p class="warn">{{ error }}</p>{% endif %}
+<div class="legendrow">{% set lo = namespace(v=0) %}{% for top, label, color in BANDS %}<span style="--c:{{ color }}">{{ lo.v }}–{{ [top, 100]|min }} {{ label }}</span>{% set lo.v = top %}{% endfor %}<span style="--c:#94a3b8">ma'lumot yetarli emas</span></div>
+
+<div class="riskwrap">
+  <div>
+    <div id="riskmap" aria-label="Davlatlar xavf indeksi xaritasi"></div>
+    <p class="muted small">Davlatni bosing — tarkibi o'ng tomonda chiqadi.</p>
+  </div>
+
+  <aside>
+    {% if detail %}
+    <div class="card">
+      <h3 style="margin-top:0">{{ detail.name }} {{ pill(detail) }}</h3>
+      <p class="small">{% if detail.rank %}{{ detail.rank }}-o'rin ({{ scored }} tadan, 1 = eng xavfli) · {% endif %}{{ detail.band }} ·
+        {{ detail.coverage }}/{{ detail.of }} tarkibiy qism bo'yicha ma'lumot bor</p>
+      {% for c in detail.components %}
+      <div style="margin:10px 0">
+        <div class="small" style="display:flex;justify-content:space-between"><b>{{ c.label }}</b>
+          <span class="muted">vazni {{ c.weight }}% · {{ c.value if c.value is not none else "ma'lumot yo'q" }}</span></div>
+        {% if c.value is not none %}<div class="meter"><i style="width:{{ c.value }}%;background:{{ 'var(--bad)' if c.value >= 60 else ('#eab308' if c.value >= 40 else 'var(--good)') }}"></i></div>{% endif %}
+        {% for p in c.parts %}
+        <div class="muted small">{{ p.label }}: <b>{{ p.raw }}{{ '' if p.unit.startswith('−') else ' ' + p.unit }}</b>{% if p.year %} ({{ p.year }}){% endif %} → {{ p.risk }} <span title="Qoida">[{{ p.rule }}]</span></div>
+        {% endfor %}
+      </div>
+      {% endfor %}
+      <p class="small"><a href="/debt?c={{ detail.iso }}">Qarz tahlili →</a> · <a href="/sanctions?c={{ detail.iso }}">Sanksiyalar →</a> · <a href="/pair?a=UZB&b={{ detail.iso }}">O'zbekiston bilan munosabat →</a></p>
+    </div>
+    {% else %}
+    <div class="card small">
+      <p><b>Bu indeks nima?</b> Har bir davlat uchun ochiq manbalardagi raqamlardan yig'ilgan 0–100 ball: qancha yuqori bo'lsa, shu davlat bilan
+        savdo, investitsiya yoki hamkorlikdagi xavf shuncha katta.</p>
+      <p><b>Tarkibi (vazni):</b></p>
+      <ul>{% for key, label, weight, inputs in COMPONENTS %}<li>{{ label }} — {{ weight }}%</li>{% endfor %}</ul>
+      <p>Har bir raqam qat'iy chiziqli qoida bilan 0–100 ga o'giriladi (qoidalar davlat sahifasida raqam yonida yozilgan).
+        Ma'lumoti yo'q qism hisobga olinmaydi, qolganlari vazniga ko'ra o'rtachalanadi; 3 tadan kam qism bo'lsa ball berilmaydi.</p>
+      <p class="muted">Manbalar: Jahon banki (WDI, WGI{% if meta.years %}, {{ meta.years }}{% endif %}),
+        {% if meta.sanctions %}OFAC, BMT, YeI va Buyuk Britaniya sanksiya ro'yxatlari{% else %}sanksiya ro'yxatlari hali yuklanmagan{% endif %},
+        WorldScope yangiliklari. Bu kredit reytingi yoki bashorat emas — davlatlarni solishtirish uchun boshlang'ich ko'rsatkich.</p>
+    </div>
+    {% endif %}
+  </aside>
+</div>
+
+<div class="tabs" style="margin-top:14px">
+  <a href="/risk{{ '?c=' + detail.iso if detail }}" class="{{ 'on' if not tier }}">Barchasi</a>
+  {% for t, label in TIERS.items() %}<a href="/risk?tier={{ t }}{{ '&c=' + detail.iso if detail }}" class="{{ 'on' if tier == t }}">{{ label }}</a>{% endfor %}
+</div>
+<table class="facts small-t">
+  <thead><tr><th>#</th><th>Davlat</th><th>Ball</th>{% for key, label, weight, inputs in COMPONENTS %}<th title="vazni {{ weight }}%">{{ label }}</th>{% endfor %}</tr></thead>
+  <tbody>{% for r in rows %}
+    <tr class="{{ 'sel' if detail and detail.iso == r.iso }}"><td>{{ r.rank or '' }}</td><td><a href="/risk?c={{ r.iso }}{{ '&tier=' ~ tier if tier }}">{{ r.name }}</a></td><td>{{ pill(r) }}</td>
+      {% for c in r.components %}<td>{{ c.value|round|int if c.value is not none else '—' }}</td>{% endfor %}</tr>
+  {% endfor %}</tbody>
+</table>
+
+<script>
+const DATA = {{ payload }};
+const dark = matchMedia("(prefers-color-scheme: dark)").matches;
+const map = L.map("riskmap", {minZoom: 1, maxZoom: 6, zoomSnap: 0.5, worldCopyJump: false, attributionControl: true}).setView([30, 20], 1.5);
+map.attributionControl.setPrefix(false).addAttribution('Chegaralar: <a href="https://www.naturalearthdata.com/">Natural Earth</a>');
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+fetch(new URL("/static/world/countries-110m.json", location.origin)).then(r => r.json()).then(topo => {
+  const geo = topojson.feature(topo, topo.objects.countries);
+  const fixRing = ring => {
+    const lons = ring.map(p => p[0]);
+    if (Math.max(...lons) - Math.min(...lons) > 180) ring.forEach(p => { if (p[0] < 0) p[0] += 360; });
+  };
+  for (const f of geo.features) {
+    const g = f.geometry;
+    if (!g) continue;
+    (g.type === "Polygon" ? [g.coordinates] : g.type === "MultiPolygon" ? g.coordinates : []).forEach(poly => poly.forEach(fixRing));
+  }
+  let selected = null;
+  const layer = L.geoJSON(geo, {
+    style: f => {
+      const iso = DATA.geo[f.properties.name], s = iso && DATA.scores[iso];
+      const sel = iso && iso === DATA.selected;
+      return {weight: sel ? 2.2 : .6, color: sel ? (dark ? "#fff" : "#111827") : (dark ? "#475569" : "#b6c2d1"),
+              fillOpacity: s ? .85 : 1, fillColor: s ? s[1] : (dark ? "#1e293b" : "#f1f5f9")};
+    },
+    onEachFeature: (f, l) => {
+      const iso = DATA.geo[f.properties.name], s = iso && DATA.scores[iso];
+      if (!s) return;
+      if (iso === DATA.selected) selected = l;
+      l.bindTooltip(`<b>${esc(s[2])}</b><br>${s[0] ?? "—"} · ${esc(s[3])}`, {sticky: true});
+      l.on("click", () => { location.href = "/risk?c=" + iso; });
+    },
+  }).addTo(map);
+  if (selected) map.fitBounds(selected.getBounds(), {maxZoom: 4, padding: [40, 40], animate: false});
+});
+</script>
+{% endblock %}

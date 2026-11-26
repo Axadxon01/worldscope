@@ -125,6 +125,27 @@ CREATE TABLE IF NOT EXISTS cache (
     fetched     TEXT NOT NULL,
     data        TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS sanctions (
+    id          INTEGER PRIMARY KEY,
+    list        TEXT NOT NULL,          -- OFAC | UN | EU | UK
+    uid         TEXT NOT NULL,          -- the publisher's own id
+    kind        TEXT NOT NULL,          -- person | entity | vessel | aircraft
+    name        TEXT NOT NULL,
+    aliases     TEXT NOT NULL DEFAULT '',   -- "; "-separated
+    countries   TEXT NOT NULL DEFAULT '',   -- " RUS IRN " (padded, for LIKE '% RUS %')
+    programs    TEXT NOT NULL DEFAULT '',
+    listed      TEXT NOT NULL DEFAULT '',   -- YYYY-MM-DD where the list gives it
+    search      TEXT NOT NULL DEFAULT '',   -- normalised names, " | "-separated
+    UNIQUE (list, uid)
+);
+CREATE TABLE IF NOT EXISTS framings (
+    id          INTEGER PRIMARY KEY,
+    created     TEXT NOT NULL,
+    lang        TEXT NOT NULL,
+    topic       TEXT NOT NULL DEFAULT '',
+    model       TEXT NOT NULL,
+    data        TEXT NOT NULL           -- JSON {story, facts, camps, items, ...}
+);
 CREATE TABLE IF NOT EXISTS ai_usage (
     day         TEXT PRIMARY KEY,       -- YYYY-MM-DD, UTC
     calls       INTEGER NOT NULL DEFAULT 0
@@ -159,6 +180,10 @@ class _PgConn:
         for stmt in (s.strip() for s in script.split(";")):
             if stmt:
                 self._conn.execute(stmt)
+
+    def executemany(self, sql: str, seq):
+        with self._conn.cursor() as cur:
+            cur.executemany(_pg_sql(sql), [tuple(p) for p in seq])
 
     def commit(self):
         self._conn.commit()

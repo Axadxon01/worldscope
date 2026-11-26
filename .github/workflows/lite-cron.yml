@@ -8,12 +8,13 @@ on:
     - cron: "15 1,7,13,19 * * *"   # refresh news every 6 hours (06:15, 12:15, 18:15, 00:15 Tashkent)
     - cron: "30 2 * * *"           # morning digest, 07:30 Tashkent
     - cron: "0 5 * * 1"            # followed pairs, Monday 10:00 Tashkent
+    - cron: "40 22 * * 0"          # sanctions lists, Monday 03:40 Tashkent
   workflow_dispatch:
     inputs:
       job:
         description: Which job
         type: choice
-        options: [refresh, digest, weekly]
+        options: [refresh, digest, weekly, sanctions]
         default: refresh
 
 permissions: {}
@@ -34,6 +35,7 @@ jobs:
           case "$SCHEDULE" in
             "30 2 * * *") JOB=digest ;;
             "0 5 * * 1") JOB=weekly ;;
+            "40 22 * * 0") JOB=sanctions ;;
             "") JOB="${INPUT_JOB:-refresh}" ;;
             *) JOB=refresh ;;
           esac

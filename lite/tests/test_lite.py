@@ -137,7 +137,8 @@ def test_cluster_groups_same_story_only():
 def client(tmp_path, monkeypatch):
     use_test_db(monkeypatch, tmp_path, "t")
     monkeypatch.delenv("APP_PASSWORD", raising=False)
-    for m in ("db", "facts", "debt", "telegram_bot", "app"):
+    monkeypatch.setenv("WS_SANCTIONS_AUTO", "0")  # no 80 MB downloads in tests
+    for m in ("db", "facts", "debt", "telegram_bot", "sanctions", "risk", "framing", "app"):
         sys.modules.pop(m, None)
     import db  # noqa: F401
 
@@ -1124,3 +1125,280 @@ def test_bot_debt_command(bot):
     assert "Qarz tez o" in t and "▼ <b>Ta'lim</b>" in t and "/debt?c=UZB" in t
     tg(c, bot_mod, "/qarz")
     assert "Davlatni yozing" in texts(sent)[-1]
+
+
+# ------------------------------------------------------------------ sanctions, risk index, framing
+
+OFAC_SDN = """36,"AEROCARIBBEAN AIRLINES",-0- ,"CUBA",-0- ,-0- ,-0- ,-0- ,-0- ,-0- ,-0- ,-0-
+9001,"IVANOV, Pyotr Sergeyevich","individual","RUSSIA-EO14024",-0- ,-0- ,-0- ,-0- ,-0- ,-0- ,-0- ,"DOB 01 Jan 1970; nationality Russia; Gender Male."
+9002,"TASHKENT DUAL USE TRADING LLC",-0- ,"RUSSIA-EO14024] [UKRAINE-EO13662",-0- ,-0- ,-0- ,-0- ,-0- ,-0- ,-0- ,-0-
+9003,"SEA STAR",vessel,"IRAN",-0- ,"ABCD",-0- ,-0- ,-0- ,"Panama",-0- ,-0-
+"""
+OFAC_ADD = """36,25,-0- ,"Havana","Cuba",-0-
+9002,77,"Amir Temur 1","Tashkent","Uzbekistan",-0-
+"""
+OFAC_ALT = """9002,5,"aka","TDUT LLC",-0-
+"""
+UN_XML = """<?xml version="1.0" encoding="UTF-8"?><CONSOLIDATED_LIST><INDIVIDUALS><INDIVIDUAL>
+<DATAID>1</DATAID><FIRST_NAME>KIM</FIRST_NAME><SECOND_NAME>CHOL</SECOND_NAME><UN_LIST_TYPE>DPRK</UN_LIST_TYPE>
+<REFERENCE_NUMBER>KPi.001</REFERENCE_NUMBER><LISTED_ON>2016-03-02</LISTED_ON>
+<NATIONALITY><VALUE>Democratic People's Republic of Korea</VALUE></NATIONALITY>
+<INDIVIDUAL_ALIAS><QUALITY>Good</QUALITY><ALIAS_NAME>KIM CHOL-SU</ALIAS_NAME></INDIVIDUAL_ALIAS>
+<INDIVIDUAL_ADDRESS><COUNTRY/></INDIVIDUAL_ADDRESS></INDIVIDUAL></INDIVIDUALS>
+<ENTITIES><ENTITY><DATAID>2</DATAID><FIRST_NAME>KOREA MINING CORP</FIRST_NAME><UN_LIST_TYPE>DPRK</UN_LIST_TYPE>
+<REFERENCE_NUMBER>KPe.001</REFERENCE_NUMBER><LISTED_ON>2009-04-24</LISTED_ON>
+<ENTITY_ADDRESS><COUNTRY>Democratic People's Republic of Korea</COUNTRY></ENTITY_ADDRESS></ENTITY></ENTITIES>
+</CONSOLIDATED_LIST>"""
+EU_CSV = (
+    "﻿Entity_LogicalId;Entity_DesignationDate;Entity_SubjectType_ClassificationCode;Entity_Regulation_Programme;"
+    "NameAlias_WholeName;Address_CountryIso2Code;Citizenship_CountryIso2Code\n"
+    "500;2024-06-24;P;RUS;Рустам МУМИНОВ;;UZ\n"
+    "500;2024-06-24;P;RUS;Rustam MUMINOV;RU;\n"
+    "501;2022-03-01;E;BLR;Belaruskali;BY;\n"
+)
+UK_CSV = (
+    "Report Date: 26-Nov-2026\n"
+    "Last Updated,Unique ID,Name 6,Name 1,Name 2,Name 3,Name 4,Name 5,Name type,Regime Name,Designation Type,"
+    "Address Country,Nationality(/ies),Date Designated\n"
+    "01/01/2026,RUS0001,MUMINOV,Rustam,,,,,Primary Name,The Russia (Sanctions) (EU Exit) Regulations 2019,"
+    "Individual,Uzbekistan,(1) Russia (2) Uzbekistan,24/02/2025\n"
+    "01/01/2026,RUS0001,MUMINOV,R.,,,,,Alias,The Russia (Sanctions) (EU Exit) Regulations 2019,Individual,,,24/02/2025\n"
+    "01/01/2026,RUS0002,FARGONA KIMYO ZAVODI LLC,,,,,,Primary Name,The Russia (Sanctions) (EU Exit) Regulations 2019,"
+    "Entity,Uzbekistan,,24/02/2025\n"
+)
+
+
+def load_sample_lists(app_mod, tmp_path):
+    S = app_mod.sanctions
+    files = {}
+    for name, body in {
+        "sdn": OFAC_SDN,
+        "add": OFAC_ADD,
+        "alt": OFAC_ALT,
+        "un": UN_XML,
+        "eu": EU_CSV,
+        "uk": UK_CSV,
+    }.items():
+        files[name] = tmp_path / name
+        files[name].write_text(body, encoding="utf-8")
+    S.store("OFAC", S.parse_ofac(files["sdn"], files["add"], files["alt"]))
+    S.store("UN", S.parse_un(files["un"]))
+    S.store("EU", S.parse_eu(files["eu"]))
+    S.store("UK", S.parse_uk(files["uk"]))
+    S.compute_stats()
+    return S
+
+
+def test_sanctions_parsers_and_countries(client, tmp_path):
+    _, app_mod = client
+    S = load_sample_lists(app_mod, tmp_path)
+    assert S.country_iso("Russian Federation") == "RUS"
+    assert S.country_iso("Crimea region of Ukraine") == "UKR"
+    assert S.country_iso("South Sudan") == "SSD" and S.country_iso("Sudan") == "SDN"
+    assert S.country_iso("-0-") is None
+    rows = {r["uid"]: r for r in app_mod.db.rows("SELECT * FROM sanctions")}
+    assert rows["9001"]["kind"] == "person" and rows["9001"]["countries"].split() == ["RUS"]  # from the remarks
+    assert rows["9002"]["countries"].split() == ["UZB"] and "TDUT LLC" in rows["9002"]["aliases"]
+    assert rows["9002"]["programs"] == "RUSSIA-EO14024; UKRAINE-EO13662"
+    assert rows["9003"]["kind"] == "vessel" and "PAN" in rows["9003"]["countries"]  # flag state
+    assert rows["KPi.001"]["listed"] == "2016-03-02" and rows["KPi.001"]["countries"].split() == ["PRK"]
+    assert rows["500"]["countries"].split() == ["RUS", "UZB"] and rows["500"]["name"] == "Рустам МУМИНОВ"
+    assert rows["RUS0001"]["programs"] == "Russia" and rows["RUS0001"]["listed"] == "2025-02-24"
+    st = S.stats()
+    assert st["UZB"]["total"] == 4 and st["UZB"]["lists"] == {"OFAC": 1, "EU": 1, "UK": 2}
+    assert S.totals()["all"] == 10
+
+
+def test_sanctions_search_and_pages(client, tmp_path):
+    c, app_mod = client
+    S = load_sample_lists(app_mod, tmp_path)
+    hits = S.search("Муминов")  # Cyrillic finds the Latin spellings too
+    assert {h["list"] for h in hits} == {"EU", "UK"}
+    assert S.search("Rustam Muminov")[0]["score"] >= 0.95
+    assert S.search("Muminov", country="UZB", lst="UK")[0]["uid"] == "RUS0001"
+    assert S.search("Pyotr Ivanovv")  # a typo still finds the stem
+    assert S.search("x") == []
+    page = c.get("/sanctions?q=muminov").text
+    assert "MUMINOV" in page and "yuridik maslahat emas" in page
+    country = c.get("/sanctions?c=UZB").text
+    assert "FARGONA KIMYO ZAVODI LLC" in country and "TASHKENT DUAL USE TRADING LLC" in country
+    home = c.get("/sanctions").text
+    assert "eksportyorlari uchun" in home and "Ikkilamchi sanksiya" in home
+    assert c.get("/sanctions?c=UZB&kind=person&list=UK").status_code == 200
+
+
+def test_sanctions_refresh_keeps_old_list_on_failure(client, tmp_path, monkeypatch):
+    _, app_mod = client
+    S = load_sample_lists(app_mod, tmp_path)
+
+    async def broken(client_, url, dest):
+        raise app_mod.collectors.CollectError("HTTP 503")
+
+    monkeypatch.setattr(S, "_download", broken)
+    import asyncio
+
+    out = asyncio.run(S.refresh(["UN"]))
+    assert "HTTP 503" in out["UN"]
+    assert S.totals()["lists"]["UN"] == 2  # still there
+    assert "HTTP 503" in S.status()["UN"]["error"]
+
+
+WB_SAMPLE = {
+    "pv": {"UZB": [-0.3, "2024"], "NOR": [1.2, "2024"], "SSD": [-2.4, "2024"]},
+    "rl": {"UZB": [-1.0, "2024"], "NOR": [1.9, "2024"], "SSD": [-1.8, "2024"]},
+    "cc": {"UZB": [-0.9, "2024"], "NOR": [2.1, "2024"]},
+    "ext_debt": {"UZB": [60.0, "2024"], "NOR": [0, "2024"]},
+    "inflation": {"UZB": [10.0, "2024"], "NOR": [3.0, "2024"], "SSD": [90.0, "2024"]},
+    "growth": {"UZB": [6.0, "2024"], "NOR": [1.0, "2024"], "SSD": [-6.0, "2024"]},
+}
+
+
+def test_risk_scores_are_traceable(client):
+    _, app_mod = client
+    risk = app_mod.risk
+    assert risk.lin(70, 20, 120) == 50 and risk.lin(500, 20, 120) == 100 and risk.lin(-5, 20, 120) == 0
+    uz = risk.score_country("UZB", WB_SAMPLE, {"UZB": {"total": 99}}, {"UZB": [20, 5]})
+    comps = {c["key"]: c for c in uz["components"]}
+    assert comps["stability"]["value"] == risk.lin(0.3, -2, 2)  # −0.3 → 57.5
+    assert comps["governance"]["value"] == round((risk.lin(1.0, -2, 2) + risk.lin(0.9, -2, 2)) / 2, 1)
+    assert comps["debt"]["value"] == 40.0  # 60% of GNI on the 20…120 line
+    assert comps["sanctions"]["value"] == 50.0  # 99 entries → 25·log10(100)
+    assert comps["news"]["value"] == risk.lin(0.25, 0.05, 0.6)
+    expected = sum(c["weight"] * c["value"] for c in uz["components"]) / 100
+    assert uz["score"] == round(expected, 1) and uz["coverage"] == 6
+    # too little data: no score rather than a misleading one
+    assert risk.score_country("TWN", WB_SAMPLE, None, {})["score"] is None
+    rows = risk.index(WB_SAMPLE, {"UZB": {"total": 99}}, {})
+    scored = [r["iso"] for r in rows if r["score"] is not None]
+    assert scored[0] == "SSD" and scored[-1] == "NOR" and len(rows) == 196
+
+
+def test_risk_page(client, monkeypatch):
+    c, app_mod = client
+
+    async def wb(force=False):
+        return WB_SAMPLE
+
+    monkeypatch.setattr(app_mod.risk, "world_bank", wb)
+    page = c.get("/risk").text
+    assert "Xavf indeksi" in page and "riskmap" in page and "Siyosiy barqarorlik" in page
+    d = c.get("/risk?c=UZB").text
+    assert "Qarz tahlili" in d and "20% → 0, 120% → 100" in d
+    assert c.get("/risk?tier=1").status_code == 200
+
+
+def test_framing_camps(client):
+    _, app_mod = client
+    F = app_mod.framing
+    assert F.camp_of("Reuters") == "west" and F.camp_of("ТАСС") == "ru" and F.camp_of("RT") == "ru"
+    assert F.camp_of("Kun.uz | Расмий канал") == "uz" and F.camp_of("Radio Ozodlik") == "us_funded"
+    assert F.camp_of("Meduza") == "ru_indep" and F.camp_of("Xinhua") == "cn" and F.camp_of("Times of India") == "in"
+    assert F.camp_of("Ukrainska Pravda") == "west" and F.camp_of("Smalltown Gazette") is None
+    assert F.camp_of("", "https://www.aljazeera.com/news/x") == "gulf"
+
+
+def framing_items():
+    now = datetime.now(UTC).isoformat()
+    return [
+        {"id": 1, "title": "Talks in Geneva stall as Moscow rejects ceasefire terms", "summary": "Kremlin aggression",
+         "publisher": "Reuters", "url": "https://r.example/1", "published": now},
+        {"id": 2, "title": "Переговоры в Женеве: Запад саботирует мир", "summary": "",
+         "publisher": "ТАСС", "url": "https://t.example/2", "published": now},
+        {"id": 3, "title": "Geneva talks end without deal", "summary": "", "publisher": "Kun.uz",
+         "url": "https://k.example/3", "published": now},
+    ]  # fmt: skip
+
+
+def test_framing_clean_keeps_only_evidence(client):
+    _, app_mod = client
+    F = app_mod.framing
+    items = F.pick(framing_items())
+    raw = {
+        "story": "Talks stalled.",
+        "facts": [{"text": "Talks were held in Geneva", "cites": [1, 2]}, {"text": "one camp only", "cites": [1]}],
+        "camps": [
+            {"camp": "west", "angle": "Russia blocks peace", "words": ["aggression", "invented word"], "cites": [1, 2],
+             "tone": "critical", "toward": "Russia"},
+            {"camp": "ru", "angle": "West sabotages", "words": ["саботирует"], "tone": "angry"},
+            {"camp": "cn", "angle": "not in the items"},
+        ],
+        "disputes": [{"text": "who blocked", "cites": [1, 2]}],
+    }  # fmt: skip
+    out = F.clean(raw, items)
+    camps = {c["camp"]: c for c in out["camps"]}
+    assert set(camps) == {"west", "ru"}  # no invented camp
+    assert camps["west"]["words"] == ["aggression"]  # only words that really appear
+    assert camps["west"]["cites"] == [n for n, a in enumerate(items, 1) if a["camp"] == "west"]
+    assert camps["ru"]["tone"] == "neutral"  # unknown tone falls back
+    assert [f["text"] for f in out["facts"]] == ["Talks were held in Geneva"]  # a shared fact needs two camps
+    assert len(out["disputes"]) == 1
+
+
+def test_framing_page_and_compare(client, monkeypatch):
+    c, app_mod = client
+    with app_mod.db.tx() as conn:
+        for a in framing_items():
+            conn.execute(
+                "INSERT INTO articles (url, title, summary, publisher, published, fetched, kind, title_key) "
+                "VALUES (?,?,?,?,?,?,?,?)",
+                (
+                    a["url"],
+                    a["title"],
+                    a["summary"],
+                    a["publisher"],
+                    a["published"],
+                    a["published"],
+                    "rss",
+                    f"k{a['id']}",
+                ),
+            )
+    ids = [r["id"] for r in app_mod.db.rows("SELECT id FROM articles WHERE url LIKE 'https://_.example/%'")]
+    reply = json.dumps(
+        {
+            "story": "Geneva talks stalled.",
+            "camps": [
+                {"camp": "west", "angle": "Moscow blamed", "cites": [1]},
+                {"camp": "ru", "angle": "West blamed", "cites": [2]},
+            ],
+        }
+    )
+    monkeypatch.setattr(app_mod.analyze, "ai_available", lambda: True)
+    monkeypatch.setattr(app_mod.analyze, "complete", lambda *a, **k: (reply, "test-model"))
+    r = c.post("/framing", data={"ids": ",".join(map(str, ids)), "lang": "uz"}, follow_redirects=False)
+    assert r.status_code == 303 and "/framing?id=" in r.headers["location"]
+    page = c.get(r.headers["location"]).text
+    assert "Moscow blamed" in page and "Rossiya OAV" in page and "G&#39;arb OAV" in page
+
+    # a topic nobody but one camp covers is refused before any AI call
+    async def only_west(topic):
+        return []
+
+    monkeypatch.setattr(app_mod.framing, "search_topic", only_west)
+    r = c.post("/framing", data={"topic": "zzzz nothing", "lang": "uz"}, follow_redirects=False)
+    assert "error=" in r.headers["location"]
+
+
+def test_bot_risk_and_sanctions(bot, tmp_path, monkeypatch):
+    c, app_mod, telegram_bot, sent = bot
+    load_sample_lists(app_mod, tmp_path)
+
+    async def wb(force=False):
+        return WB_SAMPLE
+
+    monkeypatch.setattr(app_mod.risk, "world_bank", wb)
+    tg(c, telegram_bot, "/xavf O'zbekiston")
+    tg(c, telegram_bot, "/sanksiya Muminov")
+    out = texts(sent)
+    assert "xavf indeksi" in out[-2] and "/risk?c=UZB" in out[-2]
+    assert "MUMINOV" in out[-1] and "Rasmiy manbada tekshiring" in out[-1]
+
+
+def test_cron_sanctions(bot, monkeypatch):
+    c, app_mod, _, _ = bot
+
+    async def fake(only=None):
+        return {"OFAC": 3}
+
+    monkeypatch.setattr(app_mod.sanctions, "refresh", fake)
+    r = c.post("/cron/sanctions", headers={"x-cron-token": "cron-secret"})
+    assert r.json() == {"OFAC": 3}

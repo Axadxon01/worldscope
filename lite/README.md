@@ -53,6 +53,24 @@ To'liq WorldScope (`frontend/`, `backend/`) o'zgarishsiz qoladi; bu papka undan 
   yoziladi; manbasiz ayblov ko'rsatilmaydi. Juftlik sahifasida esa ikki davlatning bir-biriga qarzi chiqadi.
   Kreditorlar taqsimoti faqat past va o'rta daromadli davlatlar uchun bor (Jahon banki IDS).
 
+- **Sanksiyalar** (`/sanctions`): AQSH OFAC (SDN), BMT Xavfsizlik Kengashi, Yevropa Ittifoqi va Buyuk Britaniya
+  rasmiy ro'yxatlari (~33 000 yozuv) bitta jadvalda. Nom bo'yicha qidiruv (lotin, kirill, xatoli yozilish),
+  davlat bo'yicha statistika, dasturlar, yillar, sanksiya yangiliklari. O'zbekiston eksportyorlari uchun alohida
+  blok: O'zbekistonga bog'langan yozuvlar, asosiy savdo hamkorlarida qancha yozuv borligi va ikkilamchi sanksiya
+  haqida tushuntirish. Ro'yxatlar haftada bir yangilanadi; biri yuklanmasa, eskisi qoladi. Nom mosligi —
+  yuridik xulosa emas, sahifa buni ochiq yozadi.
+- **Xavf indeksi** (`/risk`): 196 davlat uchun 0–100 ball va xarita. Tarkibi: siyosiy barqarorlik (25%),
+  boshqaruv sifati (20%), qarz yuki (15%), iqtisodiy holat (15%), sanksiya ro'yxatlaridagi yozuvlar (15%),
+  yangiliklarda mojaro ulushi (10%). Manbalar: Jahon banki WDI va WGI, sanksiya ro'yxatlari, saytdagi
+  yangiliklar. Har bir raqam yonida uni ballga o'girgan qoida yoziladi; ma'lumot yetarli bo'lmasa ball berilmaydi.
+- **OAV talqini** (`/framing`): bitta voqeani turli lagerlar — Rossiya OAV, G'arb, Xitoy davlat OAV,
+  O'zbekiston, Markaziy Osiyo, Turkiya, arab dunyosi, Eron, Hindiston, AQSH davlat radiolari, xorijdagi
+  mustaqil rus OAV — qanday yoritayotganini solishtiradi: nimani birinchi qo'yadi, nimani aytmaydi, qanday
+  baholovchi so'zlar ishlatadi, qaysi faktda hammasi bir xil. Mavzu yozasiz yoki saytning o'zi topgan
+  "bir nechta lager yoritgan voqea"ni tanlaysiz. AI faqat sarlavha va qisqa matnni o'qiydi; ikki lagerdan
+  kam bo'lsa ishga tushmaydi. Baholovchi so'z faqat sarlavhada haqiqatan bo'lsa ko'rsatiladi.
+- **Bot**: `/xavf UZB` — xavf indeksi, `/sanksiya Nom` — ro'yxatlarda qidiruv.
+
 Faqat sarlavha, qisqa matn va havola saqlanadi. Paywall va bot himoyasi aylanib o'tilmaydi.
 Instagram'ning ochiq API'si yo'q va scraping qoidalariga zid, shuning uchun qo'shilmagan.
 
@@ -93,7 +111,7 @@ qo'shgan manbalaringiz o'chadi. Doimiy manbalarni `sources_default.json` ga yozi
 
 Bepul Render xizmati uxlaganda o'z taymeri ham to'xtaydi. `.github/workflows/lite-cron.yml` uni
 GitHub Actions orqali uyg'otadi: har 6 soatda yangilash, har kuni 07:30 (Toshkent) digest, dushanba
-10:00 da kuzatilgan juftliklar. Ishlashi uchun: bitta tasodifiy token yarating, uni Render'da `CRON_TOKEN`,
+10:00 da kuzatilgan juftliklar, dushanba 03:40 da sanksiya ro'yxatlari. Ishlashi uchun: bitta tasodifiy token yarating, uni Render'da `CRON_TOKEN`,
 GitHub'da (Settings → Secrets → Actions) `LITE_CRON_TOKEN` sifatida qo'ying. GitHub rejali ishlarni faqat
 asosiy (`main`) branch'dan ishga tushiradi.
 
@@ -115,7 +133,8 @@ asosiy (`main`) branch'dan ishga tushiradi.
 | `WS_AI_DAILY_LIMIT` | `60` | Bir kunda nechta AI ish (tahlil, xarita, juftlik) bajarilishi mumkin |
 | `TELEGRAM_BOT_TOKEN` | yo'q | @BotFather bergan token; bot va kunlik digestni yoqadi |
 | `PUBLIC_URL` | `https://worldscope-lite.onrender.com` | Bot havolalari va webhook uchun saytning manzili |
-| `CRON_TOKEN` | yo'q | `/cron/refresh`, `/cron/digest`, `/cron/weekly` uchun maxfiy token (GitHub'da `LITE_CRON_TOKEN`) |
+| `WS_SANCTIONS_AUTO` | `1` | Ro'yxatlar yo'q yoki 8 kundan eski bo'lsa, ishga tushgach o'zi yuklaydi (~80 MB yuklab olinadi) |
+| `CRON_TOKEN` | yo'q | `/cron/refresh`, `/cron/digest`, `/cron/weekly`, `/cron/sanctions` uchun maxfiy token (GitHub'da `LITE_CRON_TOKEN`) |
 | `WS_WEEKLY_PAIRS` | `4` | Haftalik ishda nechta kuzatilgan juftlik qayta tahlil qilinadi |
 | `WS_EMBED` | `1` | `0` bo'lsa ma'no vektorlari o'chadi |
 | `WS_EMBED_MERGE` | `0.92` | Ma'no o'xshashligi chegarasi |

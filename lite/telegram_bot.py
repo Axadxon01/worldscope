@@ -12,6 +12,7 @@ import html
 import logging
 import os
 import re
+from urllib.parse import quote_plus
 
 import httpx
 
@@ -82,6 +83,8 @@ async def setup_webhook() -> None:
             {"command": "kuzatuvlar", "description": "Kuzatayotgan juftliklarim"},
             {"command": "juft", "description": "Juftlik xulosasi: /juft USA RUS"},
             {"command": "qarz", "description": "Davlat qarzlari tahlili: /qarz UZB"},
+            {"command": "xavf", "description": "Davlat xavf indeksi: /xavf UZB"},
+            {"command": "sanksiya", "description": "Sanksiya ro'yxatlarida qidirish: /sanksiya Ivanov"},
             {"command": "stop", "description": "Kunlik xabarlarni to'xtatish"},
             {"command": "yordam", "description": "Buyruqlar"},
         ],
@@ -134,6 +137,8 @@ HELP = """<b>WorldScope</b> — xalqaro yangiliklar tahlili.
 /bekor UZB AUS — kuzatuvni o'chirish
 /juft USA RUS — saqlangan tahlil xulosasi
 /qarz UZB — davlat qarzlari va qarzdan keyingi o'zgarishlar
+/xavf UZB — davlat xavf indeksi (0–100) va uning tarkibi
+/sanksiya Nom — OFAC, BMT, YeI va Buyuk Britaniya ro'yxatlarida nom qidirish
 /stop — kunlik xabarlarni to'xtatish, /start — qayta yoqish
 
 Har kuni ertalab qisqa digest keladi. Kuzatilgan juftlik har hafta qayta tahlil qilinadi; munosabat keskin
@@ -234,6 +239,14 @@ async def handle(update: dict, analyze_pair=None) -> None:
             await send(chat_id, "Davlatni yozing, masalan: <code>/qarz UZB</code> yoki <code>/qarz Pokiston</code>")
             return
         await send(chat_id, debt_text(iso))
+    elif cmd == "/xavf":
+        iso = resolve(args.strip()) if args.strip() else None
+        if not iso:
+            await send(chat_id, "Davlatni yozing, masalan: <code>/xavf UZB</code> yoki <code>/xavf Turkiya</code>")
+            return
+        await send(chat_id, await risk_text(iso))
+    elif cmd == "/sanksiya":
+        await send(chat_id, sanctions_text(args.strip()))
     elif cmd == "/kuzatuvlar":
         rows = db.rows("SELECT a, b, key FROM tg_follows WHERE chat_id = ? ORDER BY created", (chat_id,))
         if not rows:
@@ -247,6 +260,47 @@ async def handle(update: dict, analyze_pair=None) -> None:
         await send(chat_id, "<b>Kuzatuvlaringiz</b>\n" + "\n".join(lines))
     else:
         await send(chat_id, "Bunday buyruq yo'q. /yordam")
+
+
+async def risk_text(iso: str) -> str:
+    import risk  # local, like debt below
+
+    try:
+        rows, _ = await risk.build()
+    except Exception:
+        return "Jahon banki ma'lumotlarini hozir olib bo'lmadi, birozdan keyin urinib ko'ring."
+    r = next((x for x in rows if x["iso"] == iso), None)
+    title = f"🧭 <b>{esc(analyze.display_name(iso))}: xavf indeksi</b>"
+    if not r or r["score"] is None:
+        return f"{title}\nMa'lumot yetarli emas."
+    scored = sum(x["score"] is not None for x in rows)
+    lines = [title, f"<b>{r['score']}</b>/100 — {r['band']} ({r['rank']}-o'rin {scored} tadan, 1 = eng xavfli)", ""]
+    for c in r["components"]:
+        v = "—" if c["value"] is None else f"{c['value']:.0f}"
+        lines.append(f"• {esc(c['label'])} ({c['weight']}%): {v}")
+    lines += ["", f"{PUBLIC_URL}/risk?c={iso}"]
+    return "\n".join(lines)
+
+
+def sanctions_text(q: str) -> str:
+    import sanctions
+
+    if len(q) < 3:
+        return "Nomni yozing, masalan: <code>/sanksiya Sberbank</code>"
+    if not sanctions.loaded():
+        return "Sanksiya ro'yxatlari hali yuklanmagan, birozdan keyin urinib ko'ring."
+    found = sanctions.search(q, limit=6)
+    head = f"🔎 <b>Sanksiya ro'yxatlari: {esc(q)}</b>"
+    if not found:
+        return f"{head}\nTopilmadi. Bu “ro'yxatda yo'q” degani emas — nom boshqacha yozilgan bo'lishi mumkin."
+    lines = [head, ""]
+    for r in found:
+        where = ", ".join(analyze.display_name(c) for c in r["countries"][:3])
+        lines.append(f"• <b>{esc(r['name'])}</b> — {r['list']}, {esc(', '.join(r['programs'][:2]))}"
+                     f"{' · ' + esc(where) if where else ''} ({sanctions.match_label(r['score'])})")  # fmt: skip
+    lines += ["", "⚖️ Nom mosligi — bu o'sha shaxs ekanini anglatmaydi. Rasmiy manbada tekshiring.",
+              f"{PUBLIC_URL}/sanctions?q={quote_plus(q)}"]  # fmt: skip
+    return "\n".join(lines)
 
 
 STATE_UZ = {"improved": "▲", "worsened": "▼", "mixed": "◆", "unclear": "·"}

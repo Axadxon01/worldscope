@@ -19,7 +19,7 @@ from pathlib import Path
 from urllib.parse import quote_plus, urlsplit
 
 import markdown as md
-from fastapi import FastAPI, Form, Request
+from fastapi import FastAPI, Form, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -31,7 +31,10 @@ import db
 import debt
 import embed
 import facts
+import framing
 import pairs
+import risk
+import sanctions
 import telegram_bot
 
 HERE = Path(__file__).parent
@@ -43,12 +46,14 @@ KINDS = {"rss": "RSS", "gnews": "Google News", "telegram": "Telegram", "gdelt": 
 log = logging.getLogger("worldscope")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
-state = {"running": False, "last_run": None, "last_added": 0, "ai_job": ""}
+state = {"running": False, "last_run": None, "last_added": 0, "ai_job": "", "sanctions": ""}
 AI_DAILY_LIMIT = int(os.environ.get("WS_AI_DAILY_LIMIT", "60"))
 _ai_lock = asyncio.Lock()
 _background: set[asyncio.Task] = set()
 CRON_TOKEN = os.environ.get("CRON_TOKEN", "").strip()
 WEEKLY_PAIRS = int(os.environ.get("WS_WEEKLY_PAIRS", "4"))
+# Load the sanctions lists by itself when they are missing or more than a week old.
+SANCTIONS_AUTO = os.environ.get("WS_SANCTIONS_AUTO", "1") == "1"
 # Called by machines with their own secret, not by people with the site password.
 MACHINE_PATHS = ("/healthz", "/telegram/webhook", "/cron/")
 
@@ -174,12 +179,33 @@ async def _loop():
         await asyncio.sleep(REFRESH_MIN * 60)
 
 
+async def refresh_sanctions(only: list[str] | None = None) -> dict:
+    if state["sanctions"]:
+        return {"skipped": "ro'yxatlar allaqachon yuklanmoqda"}
+    state["sanctions"] = "yuklanmoqda"
+    try:
+        return await sanctions.refresh(only)
+    finally:
+        state["sanctions"] = ""
+
+
+async def _sanctions_when_stale(delay: float = 0) -> None:
+    await asyncio.sleep(delay)  # let the first news refresh go first
+    try:
+        if await asyncio.to_thread(sanctions.stale):
+            log.info("sanctions lists: %s", await refresh_sanctions())
+    except Exception:
+        log.exception("sanctions refresh failed")
+
+
 @asynccontextmanager
 async def lifespan(_app):
     db.init(json.loads((HERE / "sources_default.json").read_text(encoding="utf-8")))
     task = asyncio.create_task(_loop())
     if telegram_bot.enabled():
         _keep(asyncio.create_task(telegram_bot.setup_webhook()))
+    if SANCTIONS_AUTO:
+        _keep(asyncio.create_task(_sanctions_when_stale(delay=90)))
     yield
     task.cancel()
 
@@ -784,6 +810,175 @@ async def make_debt(c: str = Form(...), lang: str = Form("uz")):
     return RedirectResponse(back, 303)
 
 
+# ------------------------------------------------------------------ sanctions
+
+
+@app.get("/sanctions", response_class=HTMLResponse)
+def sanctions_page(
+    request: Request, q: str = "", c: str = "", lst: str = Query("", alias="list"), kind: str = "", error: str = ""
+):
+    iso = c.upper()[:3] if pairs.valid(c.upper()[:3]) else ""
+    lst = lst if lst in sanctions.LISTS else ""
+    q = q.strip()[:120]
+    st = sanctions.stats()
+    results = sanctions.search(q, iso, lst) if q else []
+    country = None
+    if iso and not q:
+        country = {
+            "stat": st.get(iso, {"total": 0, "lists": {}, "kinds": {}, "programs": []}),
+            "rows": sanctions.for_country(iso, lst, kind),
+            "years": sanctions.by_year(iso),
+            "news": sanctions.news(iso),
+        }
+    top = sorted(st.items(), key=lambda kv: -kv[1]["total"])[:25]
+    partners = [(p, st.get(p, {}).get("total", 0)) for p in sanctions.UZ_PARTNERS]
+    return templates.TemplateResponse(
+        request,
+        "sanctions.html",
+        {
+            "q": q, "iso": iso, "lst": lst, "kind": kind if kind in sanctions.KINDS else "", "error": error,
+            "results": results, "country": country, "top": top, "partners": partners,
+            "uz": st.get("UZB", {}), "uz_rows": sanctions.for_country("UZB", limit=60) if not (q or iso) else [],
+            "status": sanctions.status(), "totals": sanctions.totals(), "LISTS": sanctions.LISTS,
+            "KINDS": sanctions.KINDS, "PROGRAMS": PROGRAM_LABELS, "options": pairs.country_options(),
+            "TIERS": pairs.TIERS, "name": analyze.display_name, "match": sanctions.match_label,
+        },
+    )  # fmt: skip
+
+
+# EU programme codes in the EU file, and a few OFAC ones, in words.
+PROGRAM_LABELS = {
+    "RUS": "Rossiya (Ukrainadagi urush)", "UKR": "Ukraina hududiy yaxlitligiga tahdid",
+    "RUSDA": "Rossiya: beqarorlashtirish", "RUSHR": "Rossiya: inson huquqlari", "BLR": "Belarus", "IRN": "Eron",
+    "IRQ": "Iroq", "PRK": "KXDR (Shimoliy Koreya)",
+    "SYR": "Suriya", "LBY": "Liviya", "TERR": "Terrorizm", "TAQA": "ISHID / Al-Qoida", "AFG": "Afg'oniston",
+    "VEN": "Venesuela", "MMR": "Myanma", "CYB": "Kiberhujumlar", "HR": "Inson huquqlari", "CHEM": "Kimyoviy qurol",
+    "SDGT": "Xalqaro terrorizm", "SDNTK": "Narkotik savdosi", "IRGC": "Eron inqilobiy gvardiyasi",
+    "RUSSIA-EO14024": "Rossiya (EO 14024)", "UKRAINE-EO13662": "Ukraina / Rossiya (EO 13662)",
+    "CYBER2": "Kiberjinoyat", "GLOMAG": "Korrupsiya va inson huquqlari (Magnitskiy)", "NPWMD": "Ommaviy qirg'in quroli",
+    "IRAN": "Eron", "DPRK3": "KXDR", "SYRIA": "Suriya", "CUBA": "Kuba", "BELARUS-EO14038": "Belarus",
+    "ILLICIT-DRUGS-EO14059": "Narkotik savdosi", "TCO": "Transmilliy jinoiy guruhlar",
+}  # fmt: skip
+
+
+@app.post("/sanctions/refresh")
+async def sanctions_refresh():
+    if not state["sanctions"]:
+        _keep(asyncio.create_task(refresh_sanctions()))
+    return RedirectResponse("/sanctions", 303)
+
+
+# ------------------------------------------------------------------ country risk index
+
+
+@app.get("/risk", response_class=HTMLResponse)
+async def risk_page(request: Request, c: str = "", tier: int = 0, error: str = ""):
+    iso = c.upper()[:3]
+    rows, meta = [], {}
+    try:
+        rows, meta = await asyncio.wait_for(risk.build(), 40)
+    except Exception:
+        log.exception("risk index failed")
+        error = error or "Jahon banki ma'lumotlarini hozir olib bo'lmadi, birozdan keyin qayta oching."
+    for r in rows:
+        r["name"] = analyze.display_name(r["iso"])
+        r["tier"] = pairs.tier(r["iso"])
+    detail = next((r for r in rows if r["iso"] == iso), None)
+    shown = [r for r in rows if not tier or r["tier"] == tier]
+    payload = {
+        "scores": {r["iso"]: [r["score"], r["color"], r["name"], r["band"]] for r in rows},
+        "geo": {v["name"]: k for k, v in analyze.COUNTRY_INFO.items() if pairs.valid(k)},
+        "selected": iso if detail else "",
+    }
+    return templates.TemplateResponse(
+        request,
+        "risk.html",
+        {
+            "rows": shown, "detail": detail, "meta": meta, "error": error, "tier": tier, "TIERS": pairs.TIERS,
+            "COMPONENTS": risk.COMPONENTS, "BANDS": risk.BANDS, "scored": sum(r["score"] is not None for r in rows),
+            "payload": Markup(json.dumps(payload, ensure_ascii=False).replace("</", "<\\/")),
+        },
+    )  # fmt: skip
+
+
+# ------------------------------------------------------------------ media framing
+
+
+def _framing_row(fid: int | None) -> dict | None:
+    row = db.one("SELECT * FROM framings WHERE id = ?", (fid,)) if fid else None
+    row = row or (None if fid else db.one("SELECT * FROM framings ORDER BY id DESC LIMIT 1"))
+    if not row:
+        return None
+    return {**row, "data": json.loads(row["data"])}
+
+
+@app.get("/framing", response_class=HTMLResponse)
+def framing_page(request: Request, id: int | None = None, error: str = ""):
+    arts = _articles(72)
+    return templates.TemplateResponse(
+        request,
+        "framing.html",
+        {
+            "current": _framing_row(id), "error": error, "stories": framing.stories(arts),
+            "recent": db.rows("SELECT id, created, topic, lang FROM framings ORDER BY id DESC LIMIT 12"),
+            "CAMPS": framing.CAMP_LABELS, "ai": analyze.ai_available(), "camp_count": _camp_count(arts),
+        },
+    )  # fmt: skip
+
+
+def _camp_count(arts: list[dict]) -> list[tuple[str, int]]:
+    from collections import Counter
+
+    n = Counter(a["camp"] for a in framing.tag(arts))
+    return [(k, n[k]) for k in framing.CAMP_LABELS if n[k]]
+
+
+def _ids(text: str) -> list[int]:
+    return [int(x) for x in re.findall(r"\d+", text or "")][: framing.MAX_ITEMS * 2]
+
+
+async def _framing_items(topic: str, ids: list[int]) -> list[dict]:
+    if ids:
+        marks = ",".join("?" * len(ids))
+        return await asyncio.to_thread(db.rows, f"SELECT * FROM articles WHERE id IN ({marks})", ids)
+    stored = [a for a in await asyncio.to_thread(_articles, KEEP_DAYS * 24, topic)][:200]
+    fetched = await framing.search_topic(topic)
+    return [*stored, *({**a, "id": -(i + 1)} for i, a in enumerate(fetched))]
+
+
+@app.post("/framing")
+async def make_framing(topic: str = Form(""), ids: str = Form(""), lang: str = Form("uz")):
+    topic, lang = topic.strip()[:150], lang if lang in analyze.LANG_NAMES else "uz"
+    id_list = _ids(ids)
+    if not topic and not id_list:
+        return RedirectResponse("/framing?error=" + quote_plus("Mavzu yozing yoki voqeani tanlang"), 303)
+    if not analyze.ai_available():
+        return RedirectResponse("/framing?error=" + quote_plus("AI kaliti o'rnatilmagan"), 303)
+    if _ai_lock.locked():
+        return RedirectResponse("/framing?error=" + quote_plus(busy_message()), 303)
+    items = framing.pick(await _framing_items(topic, id_list))
+    if len(framing.camps_in(items)) < framing.MIN_CAMPS:
+        msg = (
+            "Bu mavzuni kamida ikki xil OAV lageri yoritgani topilmadi. "
+            "Boshqacha so'z bilan yozing (masalan inglizcha)."
+        )
+        return RedirectResponse("/framing?error=" + quote_plus(msg), 303)
+    try:
+        data = await run_ai("OAV taqqoslash", framing.compare, items, lang, topic)
+    except analyze.AIError as e:
+        return RedirectResponse("/framing?error=" + quote_plus(str(e)), 303)
+    except Exception as e:
+        log.exception("framing failed")
+        return RedirectResponse("/framing?error=" + quote_plus(f"AI xatosi: {type(e).__name__}"), 303)
+    title = topic or (items[0]["title"] if items else "")
+    with db.tx() as c:
+        row = c.execute(
+            "INSERT INTO framings (created, lang, topic, model, data) VALUES (?,?,?,?,?) RETURNING id",
+            (collectors.now_iso(), lang, title[:200], data["model"], analyze.dumps(data)),
+        ).fetchone()
+    return RedirectResponse(f"/framing?id={row['id']}", 303)
+
+
 # ------------------------------------------------------------------ Telegram and scheduled jobs
 
 
@@ -873,6 +1068,8 @@ async def cron(job: str, request: Request, force: int = 0):
         return await job_digest(bool(force))
     if job == "weekly":
         return await job_weekly()
+    if job == "sanctions":
+        return await refresh_sanctions()
     return Response(status_code=404)
 
 
