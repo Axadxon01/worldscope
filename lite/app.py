@@ -15,6 +15,7 @@ import secrets
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from urllib.parse import quote_plus
 
 import markdown as md
 from fastapi import FastAPI, Form, Request
@@ -299,7 +300,12 @@ async def make_brief(lang: str = Form("uz"), hours: str = Form("24"), focus: str
     except Exception as e:  # show the reason on the page instead of a 500
         log.exception("brief failed")
         msg = str(e) if isinstance(e, ValueError) else f"AI xatosi: {type(e).__name__}"
-        return RedirectResponse("/brief?error=" + msg.replace(" ", "+"), 303)
+        detail = str(getattr(e, "body", None) or "")
+        if "credit balance" in detail:
+            msg = "Anthropic hisobida kredit yetarli emas: console.anthropic.com → Plans & Billing"
+        elif getattr(e, "status_code", None) == 401:
+            msg = "Anthropic kaliti noto'g'ri yoki bekor qilingan"
+        return RedirectResponse("/brief?error=" + quote_plus(msg), 303)
     with db.tx() as c:
         cur = c.execute(
             "INSERT INTO briefs (created, lang, hours, focus, model, body, cites) VALUES (?,?,?,?,?,?,?)",
