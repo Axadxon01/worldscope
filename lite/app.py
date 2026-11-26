@@ -184,6 +184,21 @@ def _render_brief(body: str, cites: list[dict]) -> Markup:
 
 
 templates.env.filters["ago"] = _ago
+
+
+def _cite_links(text: str, sources: list[dict]) -> Markup:
+    """Escape the text and turn [n] into a link to source n; drop numbers with no source."""
+    known = {c["n"] for c in sources or []}
+    return Markup(
+        re.sub(
+            r"\[(\d+)\]",
+            lambda m: f'<a class="cite" href="#s{m.group(1)}">{m.group(1)}</a>' if int(m.group(1)) in known else "",
+            str(escape(text or "")),
+        )
+    )
+
+
+templates.env.filters["cites"] = _cite_links
 templates.env.globals.update(
     KINDS=KINDS,
     CATS={k: v[0] for k, v in analyze.CATEGORIES.items()} | {"central-asia": "Markaziy Osiyo"},

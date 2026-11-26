@@ -485,7 +485,7 @@ def test_196_states_and_tiers():
 
 
 PAIR_JSON = """{"score": 2, "label": "Uzoq, lekin do'stona", "essence": "Avstraliya O'zbekistonda ta'lim va konchilik imkoniyatini ko'radi.",
- "summary": "s", "asymmetry": "a",
+ "summary": "Ta'lim aloqasi o'smoqda [1], eski da'vo [9].", "asymmetry": "a",
  "good": [{"area": "Ta'lim", "text": "Talabalar", "evidence": [1, 77]}, {"area": "Konchilik", "text": "Investitsiya", "evidence": []}],
  "bad": [{"area": "Masofa", "text": "Uzoq", "evidence": ["x"]}],
  "areas": [{"area": "Diplomatiya", "state": "positive", "note": "n"}, {"area": "Xavfsizlik", "state": "weird", "note": "n"}],
@@ -525,6 +525,8 @@ def test_pair_page_flow(client, monkeypatch):
     t = r.text
     assert "Uzoq, lekin do" in t and "+2" in t and "konchilik imkoniyatini" in t
     assert 'href="#s1"' in t and "#s77" not in t and "umumiy" in t
+    assert "o'smoqda" not in t or "[1]" not in t  # summary citations are links, not raw brackets
+    assert "[9]" not in t and "#s9" not in t
     assert "Xitoy:" in t and "ZZZ" not in t  # unknown third party dropped, Uzbek name used
     assert c.get("/pair?a=AUS&b=UZB").text.count("konchilik imkoniyatini") == 1  # same cache both ways
 

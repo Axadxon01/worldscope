@@ -49,23 +49,23 @@
     <div class="side b"><h2>{{ name(b) }}</h2><span class="tierb t{{ tier(b) }}">{{ TIER_SHORT[tier(b)] }}</span></div>
   </header>
 
-  <div class="essence big">💡 {{ r.essence }}</div>
-  <p class="psum">{{ r.summary }}</p>
-  {% if r.asymmetry %}<p class="asym"><b>Kuchlar nisbati:</b> {{ r.asymmetry }}</p>{% endif %}
+  <div class="essence big">💡 {{ r.essence|cites(r.sources) }}</div>
+  <p class="psum">{{ r.summary|cites(r.sources) }}</p>
+  {% if r.asymmetry %}<p class="asym"><b>Kuchlar nisbati:</b> {{ r.asymmetry|cites(r.sources) }}</p>{% endif %}
 
   <div class="gb">
     <div class="col good"><h3>✓ Yaxshi tomonlari</h3>
-      <ul>{% for p in r.good %}<li><b>{{ p.area }}</b> {{ p.text }} {{ ev(p.evidence) }}</li>{% else %}<li class="muted">Sezilarli ijobiy jihat topilmadi.</li>{% endfor %}</ul>
+      <ul>{% for p in r.good %}<li><b>{{ p.area }}</b> {{ p.text|cites(r.sources) }} {{ ev(p.evidence) }}</li>{% else %}<li class="muted">Sezilarli ijobiy jihat topilmadi.</li>{% endfor %}</ul>
     </div>
     <div class="col bad"><h3>✕ Muammo va ziddiyatlar</h3>
-      <ul>{% for p in r.bad %}<li><b>{{ p.area }}</b> {{ p.text }} {{ ev(p.evidence) }}</li>{% else %}<li class="muted">Jiddiy ziddiyat topilmadi.</li>{% endfor %}</ul>
+      <ul>{% for p in r.bad %}<li><b>{{ p.area }}</b> {{ p.text|cites(r.sources) }} {{ ev(p.evidence) }}</li>{% else %}<li class="muted">Jiddiy ziddiyat topilmadi.</li>{% endfor %}</ul>
     </div>
   </div>
 
   {% if r.areas %}
   <h3>Sohalar bo'yicha</h3>
   <div class="areas">{% for x in r.areas %}
-    <div class="area s-{{ x.state }}"><b>{{ x.area }}</b><span class="st">{{ {'positive':'ijobiy','mixed':'aralash','negative':'salbiy','none':'deyarli yo\'q'}[x.state] }}</span><p>{{ x.note }}</p></div>
+    <div class="area s-{{ x.state }}"><b>{{ x.area }}</b><span class="st">{{ {'positive':'ijobiy','mixed':'aralash','negative':'salbiy','none':'deyarli yo\'q'}[x.state] }}</span><p>{{ x.note|cites(r.sources) }}</p></div>
   {% endfor %}</div>
   {% endif %}
 
@@ -73,14 +73,14 @@
   <div class="scen">{% for s in r.scenarios %}
     <div class="sc p-{{ s.probability }}">
       <div class="sch"><b>{{ s.title }}</b><span class="prob">{{ {'high':'yuqori','medium':'o\'rta','low':'past'}[s.probability] }} ehtimol{% if s.horizon %} · {{ s.horizon }}{% endif %}</span></div>
-      {% if s.trigger %}<p class="trig"><i>Turtki:</i> {{ s.trigger }}</p>{% endif %}
-      <p>{{ s.outcome }}</p>
+      {% if s.trigger %}<p class="trig"><i>Turtki:</i> {{ s.trigger|cites(r.sources) }}</p>{% endif %}
+      <p>{{ s.outcome|cites(r.sources) }}</p>
     </div>
   {% endfor %}</div>
 
   <div class="gb small2">
-    {% if r.third_parties %}<div class="col"><h3>Uchinchi tomonlar</h3><ul>{% for t in r.third_parties %}<li><b>{{ name(t.iso3) }}:</b> {{ t.role }}</li>{% endfor %}</ul></div>{% endif %}
-    {% if r.watch %}<div class="col"><h3>Nimani kuzatish kerak</h3><ul>{% for w in r.watch %}<li>{{ w }}</li>{% endfor %}</ul></div>{% endif %}
+    {% if r.third_parties %}<div class="col"><h3>Uchinchi tomonlar</h3><ul>{% for t in r.third_parties %}<li><b>{{ name(t.iso3) }}:</b> {{ t.role|cites(r.sources) }}</li>{% endfor %}</ul></div>{% endif %}
+    {% if r.watch %}<div class="col"><h3>Nimani kuzatish kerak</h3><ul>{% for w in r.watch %}<li>{{ w|cites(r.sources) }}</li>{% endfor %}</ul></div>{% endif %}
   </div>
 
   <h3>Manbalar</h3>
