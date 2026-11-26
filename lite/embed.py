@@ -43,12 +43,20 @@ def enabled() -> bool:
 
 
 def _error(r: httpx.Response) -> EmbedError:
+    """Google's status, the quota it hit (per day or per minute) and how long it asks us to wait."""
     try:
         err = r.json().get("error", {})
-        msg = f"{err.get('status', '')}: {err.get('message', '')}"[:300]
     except ValueError:
-        msg = r.text[:200]
-    return EmbedError(r.status_code, msg)
+        return EmbedError(r.status_code, r.text[:200])
+    quotas, wait = [], ""
+    for d in err.get("details") or []:
+        for v in d.get("violations") or []:
+            if v.get("quotaId"):
+                quotas.append(v["quotaId"])
+        wait = d.get("retryDelay") or wait
+    first = (err.get("message") or "").split("\n")[0][:160]
+    extra = (f" quota={','.join(quotas)}" if quotas else "") + (f" retry={wait}" if wait else "")
+    return EmbedError(r.status_code, f"{err.get('status', '')}: {first}{extra}")
 
 
 def _post(client: httpx.Client, model: str, chunk: list[str], key: str) -> httpx.Response:
@@ -159,11 +167,18 @@ def back_off(err: EmbedError, now: datetime | None = None) -> datetime | None:
     now = now or datetime.now(UTC)
     if err.status != 429:
         return None
-    if "day" in err.message.lower() or "perday" in err.message.lower().replace(" ", ""):
+    text = err.message.lower()
+    compact = text.replace(" ", "")
+    wait = re.search(r"retry=(\d+(?:\.\d+)?)s", text)
+    if "perday" in compact:  # the daily allowance is spent: wait for Google's day to turn over
         local = now + PACIFIC
         until = datetime(local.year, local.month, local.day, tzinfo=UTC) + timedelta(days=1) - PACIFIC
-    else:
+    elif wait:
+        until = now + timedelta(seconds=float(wait.group(1)) + 5)
+    elif "perminute" in compact:
         until = now + timedelta(minutes=2)
+    else:  # no reason given: do not knock again every few minutes
+        until = now + timedelta(hours=1)
     _set_meta("embed:blocked_until", until.replace(microsecond=0).isoformat())
     return until
 

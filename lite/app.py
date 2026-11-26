@@ -52,6 +52,26 @@ KINDS = {"rss": "RSS", "gnews": "Google News", "telegram": "Telegram", "gdelt": 
 log = logging.getLogger("worldscope")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
+
+class _Redact(logging.Filter):
+    """Keep secrets out of the logs: httpx logs request URLs, and Telegram's carries the bot token."""
+
+    SECRET = re.compile(r"(/bot)\d+:[\w-]+|((?:key|token|api_key|secret)=)[^&\s\"']+", re.I)
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        try:
+            msg = record.getMessage()
+        except Exception:
+            return True
+        clean = self.SECRET.sub(lambda m: (m.group(1) or m.group(2)) + "***", msg)
+        if clean != msg:
+            record.msg, record.args = clean, ()
+        return True
+
+
+for _h in logging.getLogger().handlers:
+    _h.addFilter(_Redact())
+
 state = {"running": False, "last_run": None, "last_added": 0, "ai_job": "", "sanctions": "", "jobs": ""}
 AI_DAILY_LIMIT = int(os.environ.get("WS_AI_DAILY_LIMIT", "60"))
 _ai_lock = asyncio.Lock()
@@ -183,8 +203,11 @@ async def refresh() -> int:
         if embed.enabled():
             _keep(asyncio.create_task(asyncio.to_thread(_embed_backlog)))
         state.update(last_run=collectors.now_iso(), last_added=added)
-        errors = sum(1 for _, _, e in results if e)
-        log.info("refresh: %d sources, %d new articles, %d errors", len(sources), added, errors)
+        failed = [f"{src['label']}: {str(e)[:80]}" for src, _, e in results if e]
+        log.info(
+            "refresh: %d sources, %d new articles, %d errors%s",
+            len(sources), added, len(failed), f" ({'; '.join(failed)})" if failed else "",
+        )  # fmt: skip
         return added
     finally:
         state["running"] = False

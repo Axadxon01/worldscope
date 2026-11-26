@@ -1730,6 +1730,8 @@ def test_embedding_quota_backoff_and_model_discovery(client, monkeypatch):
     assert until == datetime(2026, 11, 27, 8, 0, tzinfo=UTC)  # midnight Pacific
     assert E.remaining(now) == 0 and E.remaining(until + timedelta(minutes=1)) == E.DAILY
     assert E.back_off(E.EmbedError(429, "per minute"), now) == now + timedelta(minutes=2)
+    assert E.back_off(E.EmbedError(429, "x quota=PerMinute retry=25s"), now) == now + timedelta(seconds=30)
+    assert E.back_off(E.EmbedError(429, "You exceeded your current quota"), now) == now + timedelta(hours=1)
     assert E.back_off(E.EmbedError(500, "x"), now) is None
     E.spend(5, until + timedelta(minutes=1))
     assert E.remaining(until + timedelta(minutes=1)) == E.DAILY - 5
@@ -1797,3 +1799,18 @@ def test_new_pages_render(client):
         r = c.get(path)
         assert r.status_code == 200, path
     assert "bottomnav" in c.get("/").text and "data-pdf" not in c.get("/").text
+
+
+def test_logs_never_show_tokens(caplog):
+    import logging
+
+    import app
+
+    f = app._Redact()
+    rec = logging.LogRecord("httpx", logging.INFO, "", 0, 'HTTP Request: %s %s "%s"',
+                            ("POST", "https://api.telegram.org/bot123456:AAH-secret_x/getMe", "HTTP/1.1 200"), None)  # fmt: skip
+    f.filter(rec)
+    assert "AAH-secret" not in rec.getMessage() and "/bot***/getMe" in rec.getMessage()
+    rec2 = logging.LogRecord("x", logging.INFO, "", 0, "GET https://x.test/a?key=abc123&q=1", (), None)
+    f.filter(rec2)
+    assert rec2.getMessage() == "GET https://x.test/a?key=***&q=1"
