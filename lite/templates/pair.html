@@ -18,13 +18,18 @@
 </select>
 {% endmacro %}
 {% macro numbers(nums, note='') %}
-{% if nums and (nums.rows or nums.trade) %}
+{% if nums and (nums.rows or nums.trade or nums.debts) %}
   <h3>Raqamlarda</h3>
   <table class="facts">
     <thead><tr><th></th><th>{{ name(a) }}</th><th>{{ name(b) }}</th></tr></thead>
     <tbody>
     {% for row in nums.rows %}
       <tr><td>{{ row.label }}</td><td>{{ row.a }} <span class="yr">{{ row.a_year }}</span></td><td>{{ row.b }} <span class="yr">{{ row.b_year }}</span></td></tr>
+    {% endfor %}
+    {% for d in nums.debts or [] %}
+      <tr class="trade"><td>Davlat qarzi ({{ d.year }})</td>
+        <td colspan="2">{{ name(d.debtor) }}ning {{ name(d.creditor) }}ga qarzi: <b>{{ d.now }}</b> <span class="yr">({{ d.then_year }}: {{ d.then }})</span>
+          · <a href="/debt?c={{ d.debtor }}">qarzlar tahlili</a></td></tr>
     {% endfor %}
     {% set t = nums.trade %}
     {% if t %}
@@ -34,7 +39,7 @@
     {% endif %}
     </tbody>
   </table>
-  <p class="muted small">Manba: Jahon banki (oxirgi mavjud yil), UN Comtrade. {% if not nums.trade %}Ikki tomonlama savdo bo'yicha so'nggi yillar uchun raqam topilmadi.{% endif %}</p>
+  <p class="muted small">Manba: Jahon banki (oxirgi mavjud yil, qarzlar: International Debt Statistics), UN Comtrade. {% if not nums.trade %}Ikki tomonlama savdo bo'yicha so'nggi yillar uchun raqam topilmadi.{% endif %}</p>
   {% if note %}<p class="asym"><b>Raqamlar nima deydi:</b> {{ note }}</p>{% endif %}
 {% endif %}
 {% endmacro %}

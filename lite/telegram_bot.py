@@ -81,6 +81,7 @@ async def setup_webhook() -> None:
             {"command": "kuzat", "description": "Juftlikni kuzatish: /kuzat UZB AUS"},
             {"command": "kuzatuvlar", "description": "Kuzatayotgan juftliklarim"},
             {"command": "juft", "description": "Juftlik xulosasi: /juft USA RUS"},
+            {"command": "qarz", "description": "Davlat qarzlari tahlili: /qarz UZB"},
             {"command": "stop", "description": "Kunlik xabarlarni to'xtatish"},
             {"command": "yordam", "description": "Buyruqlar"},
         ],
@@ -132,6 +133,7 @@ HELP = """<b>WorldScope</b> — xalqaro yangiliklar tahlili.
 /kuzatuvlar — kuzatayotgan juftliklaringiz
 /bekor UZB AUS — kuzatuvni o'chirish
 /juft USA RUS — saqlangan tahlil xulosasi
+/qarz UZB — davlat qarzlari va qarzdan keyingi o'zgarishlar
 /stop — kunlik xabarlarni to'xtatish, /start — qayta yoqish
 
 Har kuni ertalab qisqa digest keladi. Kuzatilgan juftlik har hafta qayta tahlil qilinadi; munosabat keskin
@@ -226,6 +228,12 @@ async def handle(update: dict, analyze_pair=None) -> None:
                 await send(
                     chat_id, f"Bu juftlik hali tahlil qilinmagan. Saytda yarating yoki kuzatuvga oling: /kuzat {a} {b}"
                 )
+    elif cmd == "/qarz":
+        iso = resolve(args.strip()) if args.strip() else None
+        if not iso:
+            await send(chat_id, "Davlatni yozing, masalan: <code>/qarz UZB</code> yoki <code>/qarz Pokiston</code>")
+            return
+        await send(chat_id, debt_text(iso))
     elif cmd == "/kuzatuvlar":
         rows = db.rows("SELECT a, b, key FROM tg_follows WHERE chat_id = ? ORDER BY created", (chat_id,))
         if not rows:
@@ -239,6 +247,30 @@ async def handle(update: dict, analyze_pair=None) -> None:
         await send(chat_id, "<b>Kuzatuvlaringiz</b>\n" + "\n".join(lines))
     else:
         await send(chat_id, "Bunday buyruq yo'q. /yordam")
+
+
+STATE_UZ = {"improved": "▲", "worsened": "▼", "mixed": "◆", "unclear": "·"}
+
+
+def debt_text(iso: str) -> str:
+    """The stored debt report in a few lines, or a pointer to the page."""
+    link = f"{PUBLIC_URL}/debt?c={iso}"
+    row = db.one("SELECT data FROM debt_reports WHERE key = ?", (f"{iso}-uz",))
+    title = f"💰 <b>{esc(analyze.display_name(iso))}: qarzlar</b>"
+    if not row:
+        return f"{title}\nAI tahlili hali yo'q. Raqamlar va tahlil sahifasi: {link}"
+    r = analyze_json(row["data"])
+    import debt  # local: the bot module stays light when debts are not used
+
+    areas = dict(debt.AREAS)
+    lines = [title, "", esc(r.get("summary", "")), ""]
+    for e in r.get("effects", []):
+        if e.get("finding"):
+            lines.append(
+                f"{STATE_UZ.get(e['state'], '·')} <b>{esc(areas.get(e['area'], e['area']))}</b>: {esc(e['finding'])}"
+            )
+    lines += ["", link]
+    return "\n".join(lines)
 
 
 def analyze_json(text: str) -> dict:

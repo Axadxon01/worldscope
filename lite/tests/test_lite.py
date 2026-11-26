@@ -1,6 +1,7 @@
 """Offline tests: parsers on realistic samples, tagging, grouping, and every page."""
 
 import importlib
+import json
 import os
 import sys
 import uuid
@@ -136,7 +137,7 @@ def test_cluster_groups_same_story_only():
 def client(tmp_path, monkeypatch):
     use_test_db(monkeypatch, tmp_path, "t")
     monkeypatch.delenv("APP_PASSWORD", raising=False)
-    for m in ("db", "facts", "telegram_bot", "app"):
+    for m in ("db", "facts", "debt", "telegram_bot", "app"):
         sys.modules.pop(m, None)
     import db  # noqa: F401
 
@@ -163,6 +164,11 @@ def client(tmp_path, monkeypatch):
         return {"countries": {}, "trade": None}
 
     monkeypatch.setattr(app_mod.facts, "pair_facts", no_facts)
+
+    async def no_debt(debtor, creditor):
+        return []
+
+    monkeypatch.setattr(app_mod.debt, "bilateral", no_debt)
 
     from fastapi.testclient import TestClient
 
@@ -236,7 +242,7 @@ def test_brief_with_fake_model(client, monkeypatch):
 def test_password_gate(tmp_path, monkeypatch):
     use_test_db(monkeypatch, tmp_path, "p")
     monkeypatch.setenv("APP_PASSWORD", "s3cret")
-    for m in ("db", "facts", "telegram_bot", "app"):
+    for m in ("db", "facts", "debt", "telegram_bot", "app"):
         sys.modules.pop(m, None)
     app_mod = importlib.import_module("app")
     monkeypatch.setattr(app_mod, "refresh", lambda: __import__("asyncio").sleep(0))
@@ -951,3 +957,170 @@ def test_pair_page_shows_figures_before_any_analysis(client, monkeypatch):
     monkeypatch.setattr(app_mod.facts, "pair_facts", fake_facts)
     t = c.get("/pair?a=UZB&b=AUS").text
     assert "Hali AI tahlili yo" in t and "Raqamlarda" in t and "147.0 mlrd $" in t and "162.7 ming $" in t
+
+
+# ------------------------------------------------------------------ debts
+
+DEBT_DATA = {
+    "debt": {
+        "DT.DOD.DECT.CD": [[2010, 8.0e9], [2018, 18.3e9], [2025, 88.0e9]],
+        "DT.DOD.DECT.GN.ZS": [[2010, 14.2], [2025, 59.7]],
+    },
+    "outcomes": {
+        "SE.XPD.TOTL.GD.ZS": [[2013, 5.74], [2023, 5.47]],
+        "SI.POV.LMIC": [[2021, 9.1], [2025, 4.0]],
+        "GOV_WGI_CC.EST": [[2010, -1.36], [2025, -0.69]],
+        "BX.KLT.DINV.WD.GD.ZS": [[2010, 3.01], [2025, 3.02]],
+    },
+    "creditors": {
+        "year": "2025",
+        "total": 30e9,
+        "rows": [
+            {"code": "BND", "name": "Bondholders", "value": 11.8e9, "year": "2025", "iso": "", "kind": "bonds"},
+            {
+                "code": "915",
+                "name": "Asian Dev. Bank",
+                "value": 8.4e9,
+                "year": "2025",
+                "iso": "",
+                "kind": "institution",
+            },
+            {"code": "730", "name": "China", "value": 4.0e9, "year": "2025", "iso": "CHN", "kind": "country"},
+        ],
+    },
+    "projects": [
+        {
+            "id": "P1",
+            "name": "Social Protection System",
+            "date": "2024-05-24",
+            "amount": 100e6,
+            "status": "Active",
+            "sector": "Social Protection",
+            "url": "https://projects.worldbank.org/x",
+        }
+    ],
+    "fetched": "2026-11-26T00:00:00+00:00",
+}
+
+DEBT_JSON = """{"summary": "Qarz tez o'sdi.", "sustainability": {"level": "moderate", "note": "59.7% YaMD"},
+ "creditors": [{"name": "Asian Dev. Bank", "logic": "Infratuzilma loyihalari"}],
+ "uses": [{"what": "Ijtimoiy himoya tizimi", "lender": "Jahon banki", "evidence": [1]}],
+ "effects": [{"area": "education", "state": "worsened", "finding": "Ta'lim xarajati 5.7% dan 5.5% ga tushdi.", "evidence": []},
+             {"area": "corruption", "state": "mixed", "finding": "Tender ishi xabar qilindi.", "evidence": [2]},
+             {"area": "bogus", "state": "improved", "finding": "x", "evidence": []}],
+ "red_flags": [{"text": "Yo'l qurilishi tenderida firibgarlik gumoni xabar qilindi", "evidence": [2]},
+               {"text": "Manbasiz ayblov", "evidence": []}],
+ "watch": ["Yevroobligatsiyalar"], "data_note": "yetarli"}"""
+
+
+def test_debt_view_and_prompt():
+    import debt
+
+    v = debt.view(json.loads(json.dumps(DEBT_DATA)))
+    assert v["debt_rows"][0]["then"] == "8.0 mlrd $" and v["debt_rows"][0]["now"] == "88.0 mlrd $"
+    labels = [r["label"] for r in v["creditors"]["rows"]]
+    assert labels == ["Obligatsiya egalari (yevroobligatsiyalar)", "Osiyo taraqqiyot banki (ADB)", "Xitoy"]
+    out = {r["label"][:10]: r["better"] for r in v["outcome_rows"]}
+    assert out["Ta'lim xar"] is False and out["Qashshoqli"] is True and out["Korrupsiya"] is True
+    assert out["Xorijiy to"] is None  # 3.01 → 3.02 is no real change
+    block = debt.prompt_block("Uzbekistan", DEBT_DATA)
+    assert "Bondholders 11.8 mlrd $" in block and "2010: 8.0 mlrd $" in block and "Social Protection System" in block
+
+
+def test_debt_report_cleaning():
+    import debt
+
+    items = [
+        {"title": "WB loan", "url": "https://x/1", "publisher": "Reuters", "published": "2026-11-01T00:00:00+00:00"},
+        {
+            "title": "Tender probe",
+            "url": "https://x/2",
+            "publisher": "Kun.uz",
+            "published": "2026-11-02T00:00:00+00:00",
+        },
+    ]
+    r = debt.clean_report(json.loads(DEBT_JSON), items)
+    assert [e["area"] for e in r["effects"]] == [k for k, _ in debt.AREAS]  # all seven, in order, bogus dropped
+    assert r["effects"][1]["state"] == "mixed" and r["effects"][2]["state"] == "unclear"
+    assert [f["text"][:5] for f in r["red_flags"]] == ["Yo'l "]  # an accusation with no report is dropped
+    assert [s["n"] for s in r["sources"]] == [1, 2]
+
+
+def test_debt_page_and_report(client, monkeypatch):
+    c, app_mod = client
+    debt = app_mod.debt
+
+    async def fake_country(iso):
+        return json.loads(json.dumps(DEBT_DATA))
+
+    async def fake_news(iso):
+        return [
+            {
+                "id": -1,
+                "title": "World Bank approves social protection loan",
+                "url": "https://x/1",
+                "publisher": "Reuters",
+                "published": NOW.isoformat(),
+                "summary": "",
+            },
+            {
+                "id": -2,
+                "title": "Road tender probe opened",
+                "url": "https://x/2",
+                "publisher": "Kun.uz",
+                "published": NOW.isoformat(),
+                "summary": "",
+            },
+        ]
+
+    monkeypatch.setattr(debt, "country_debt", fake_country)
+    monkeypatch.setattr(debt, "debt_news", fake_news)
+    t = c.get("/debt").text
+    assert "Davlatni tanlang" in t and "Qarzlar" in t
+    t = c.get("/debt?c=UZB").text
+    assert "Qarz dinamikasi" in t and "Osiyo taraqqiyot banki" in t and 'href="/pair?a=UZB&b=CHN"' in t
+    assert "Social Protection System" in t and "▼ yomonlashgan" in t and "▲ yaxshilangan" in t
+    monkeypatch.setenv("GEMINI_API_KEY", "k")
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    seen = {}
+
+    def fake_ai(system, prompt, json_mode=False):
+        seen["p"] = prompt
+        return DEBT_JSON, "gemini-test"
+
+    monkeypatch.setitem(analyze.PROVIDERS, "gemini", fake_ai)
+    t = c.post("/debt", data={"c": "UZB", "lang": "uz"}).text
+    assert "Hard figures" in seen["p"] and "Road tender probe" in seen["p"]
+    assert "Qarzdan keyin sohalar bo" in t and "Tender ishi xabar qilindi" in t and "firibgarlik gumoni" in t
+    assert "Manbasiz ayblov" not in t and "sud qarori bo" in t and "qarz xavfi: o" in t
+    assert "Davlat xaridlari" in t and "Tibbiyot" in t
+
+
+def test_pair_page_shows_mutual_debt(client, monkeypatch):
+    c, app_mod = client
+    debt = app_mod.debt
+
+    async def fake_bilateral(debtor, creditor):
+        return [[2014, 1.09e9], [2025, 3.97e9]] if (debtor, creditor) == ("UZB", "CHN") else []
+
+    monkeypatch.setattr(debt, "bilateral", fake_bilateral)
+    t = c.get("/pair?a=UZB&b=CHN").text
+    assert "O&#39;zbekistonning Xitoyga qarzi" in t and "4.0 mlrd $" in t and "/debt?c=UZB" in t
+
+
+def test_bot_debt_command(bot):
+    c, _app, bot_mod, sent = bot
+    import db
+
+    tg(c, bot_mod, "/qarz Pokiston")
+    assert "AI tahlili hali yo" in texts(sent)[-1] and "/debt?c=PAK" in texts(sent)[-1]
+    with db.tx() as conn:
+        conn.execute(
+            "INSERT INTO debt_reports (key, iso, lang, created, data) VALUES (?,?,?,?,?)",
+            ("UZB-uz", "UZB", "uz", "2026-11-26", DEBT_JSON.replace('"bogus"', '"health"')),
+        )
+    tg(c, bot_mod, "/qarz uzb")
+    t = texts(sent)[-1]
+    assert "Qarz tez o" in t and "▼ <b>Ta'lim</b>" in t and "/debt?c=UZB" in t
+    tg(c, bot_mod, "/qarz")
+    assert "Davlatni yozing" in texts(sent)[-1]

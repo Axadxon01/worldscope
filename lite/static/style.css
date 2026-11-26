@@ -210,3 +210,22 @@ table.facts { width: 100%; border-collapse: collapse; background: var(--panel); 
 .tri3 p { margin: 4px 0 0; font-size: 13.5px; }
 .scpos { color: var(--good); font-weight: 700; } .scneg { color: var(--bad); font-weight: 700; } .scmid { color: var(--muted); font-weight: 700; }
 @media (max-width: 700px) { .tri3 { grid-template-columns: 1fr; } }
+
+/* ---------------------------------------------------------------- debts */
+.debtpick select { flex: 1; }
+.debt h2 { margin: 6px 0 0; }
+.debt h3 { font-size: 16px; margin: 22px 0 8px; }
+svg.spark polyline { fill: none; stroke: #6366f1; stroke-width: 1.8; }
+.creditors { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 6px 18px; }
+.cr .crh { display: flex; justify-content: space-between; gap: 8px; font-size: 14px; }
+.cr .kind { font-size: 11px; color: var(--muted); margin-left: 4px; }
+.cr .bar { height: 7px; background: var(--line); border-radius: 99px; overflow: hidden; margin: 3px 0 6px; }
+.cr .bar i { display: block; height: 100%; background: #6366f1; }
+.cr.k-country .bar i { background: #f97316; } .cr.k-bonds .bar i { background: #64748b; }
+table.small-t td { font-size: 13px; }
+.debtai { margin-top: 10px; }
+.sus { font-size: 12.5px; font-weight: 600; padding: 2px 9px; border-radius: 99px; margin-left: 6px; vertical-align: 2px; }
+.sus.s-low { background: #16a34a22; color: var(--good); } .sus.s-moderate { background: #f59e0b22; color: #d97706; }
+.sus.s-high, .sus.s-critical { background: #dc262622; color: var(--bad); }
+.flags { background: var(--warn-bg); border: 1px solid #f5c66b; border-radius: 10px; padding: 2px 16px 8px; margin-top: 14px; }
+td.good { color: var(--good); font-size: 12.5px; } td.bad { color: var(--bad); font-size: 12.5px; }

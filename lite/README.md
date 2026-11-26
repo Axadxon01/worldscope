@@ -41,8 +41,17 @@ To'liq WorldScope (`frontend/`, `backend/`) o'zgarishsiz qoladi; bu papka undan 
 - **Ko'p tilli guruhlash**: `GEMINI_API_KEY` bo'lsa, sarlavhalarning ma'no vektorlari olinadi va bitta voqea
   haqidagi o'zbekcha, ruscha, inglizcha xabarlar bir guruhga tushadi (bepul limit: daqiqasiga 100 sarlavha).
 - **Telegram bot** (`TELEGRAM_BOT_TOKEN`): `/start`, `/bugun`, `/kuzat UZB AUS`, `/kuzatuvlar`, `/bekor`,
-  `/juft`, `/stop`. Har kuni ertalab digest; kuzatilgan juftlik har hafta qayta tahlil qilinadi va ball
+  `/juft`, `/qarz`, `/stop`. Har kuni ertalab digest; kuzatilgan juftlik har hafta qayta tahlil qilinadi va ball
   `WS_ALERT_DELTA` (2) ga o'zgarsa ogohlantirish keladi. Webhook o'zi ro'yxatdan o'tadi.
+
+- **Qarzlar** (`/debt?c=UZB`): davlatning tashqi qarzi dinamikasi (jami, davlat qarzi, YaMDga nisbati,
+  yillik to'lov, XVF kreditlari), kimga qarzdorligi (davlatlar, ADB, Jahon banki, AIIB, IsDB, EBRD,
+  obligatsiyalar), Jahon banki kreditlari ro'yxati va qarzdan keyingi ko'rsatkichlar (investitsiya, ta'lim va
+  sog'liqni saqlash xarajati, umr davomiyligi, qashshoqlik, korrupsiya nazorati, hukumat samaradorligi).
+  AI tahlili yetti soha bo'yicha nima o'zgarganini yozadi: davlat xaridlari, korrupsiya va jinoyat, qurilish,
+  investitsiya, ijtimoiy yordam, ta'lim, tibbiyot. Jinoyat va korrupsiya haqida faqat manbada xabar qilingani
+  yoziladi; manbasiz ayblov ko'rsatilmaydi. Juftlik sahifasida esa ikki davlatning bir-biriga qarzi chiqadi.
+  Kreditorlar taqsimoti faqat past va o'rta daromadli davlatlar uchun bor (Jahon banki IDS).
 
 Faqat sarlavha, qisqa matn va havola saqlanadi. Paywall va bot himoyasi aylanib o'tilmaydi.
 Instagram'ning ochiq API'si yo'q va scraping qoidalariga zid, shuning uchun qo'shilmagan.

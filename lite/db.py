@@ -109,6 +109,13 @@ CREATE TABLE IF NOT EXISTS digests (
     body        TEXT NOT NULL,          -- Telegram HTML
     model       TEXT NOT NULL DEFAULT ''
 );
+CREATE TABLE IF NOT EXISTS debt_reports (
+    key         TEXT PRIMARY KEY,       -- "ISO-lang"
+    iso         TEXT NOT NULL,
+    lang        TEXT NOT NULL,
+    created     TEXT NOT NULL,
+    data        TEXT NOT NULL           -- JSON report
+);
 CREATE TABLE IF NOT EXISTS meta (
     key         TEXT PRIMARY KEY,
     value       TEXT NOT NULL

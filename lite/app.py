@@ -28,6 +28,7 @@ from markupsafe import Markup, escape
 import analyze
 import collectors
 import db
+import debt
 import embed
 import facts
 import pairs
@@ -554,6 +555,11 @@ async def analyze_pair(a: str, b: str, lang: str, c: str = "") -> tuple[dict, di
     try:
         f = await facts.pair_facts(a, b)
         facts_text = facts.prompt_block(f, a, b, names)
+        for d in await _mutual_debt(a, b):
+            facts_text += (
+                f"\n- Public debt {names[d['debtor']]} owes {names[d['creditor']]} (World Bank IDS): "
+                f"{d['then']} ({d['then_year']}) → {d['now']} ({d['year']})"
+            )
     except Exception:  # the figures are a bonus; never fail the analysis over them
         log.exception("facts failed")
         f, facts_text = {"countries": {}, "trade": None}, ""
@@ -572,6 +578,29 @@ async def analyze_pair(a: str, b: str, lang: str, c: str = "") -> tuple[dict, di
             (k, stamp, result["score"], result["label"]),
         )
     return result, previous
+
+
+async def _mutual_debt(a: str, b: str) -> list[dict]:
+    """Public debt each owes the other, where the World Bank records it (borrowers are developing countries)."""
+    out = []
+    for debtor, creditor in ((a, b), (b, a)):
+        try:
+            years = await asyncio.wait_for(debt.bilateral(debtor, creditor), 20)
+        except Exception:
+            years = []
+        if years:
+            first = next((p for p in years if p[0] >= 2010), years[0])
+            out.append(
+                {
+                    "debtor": debtor,
+                    "creditor": creditor,
+                    "year": years[-1][0],
+                    "now": facts.human(years[-1][1], "usd"),
+                    "then_year": first[0],
+                    "then": facts.human(first[1], "usd"),
+                }
+            )
+    return out
 
 
 def _spark(history: list[dict], w: int = 260, h: int = 54) -> list[dict]:
@@ -601,13 +630,15 @@ async def pair_page(request: Request, a: str = "", b: str = "", c: str = "", lan
         result = await asyncio.to_thread(_pair_row, k)
         history = await asyncio.to_thread(_history, k)
         if result and result.get("facts"):
-            nums = result["facts"]
+            nums = dict(result["facts"])
         else:  # the figures need no AI: show them before any analysis exists
             try:
                 f = await asyncio.wait_for(facts.pair_facts(a, b), 25)
                 nums = {"rows": facts.rows_for(f, a, b), "trade": f.get("trade")}
             except Exception:
                 log.warning("facts for %s-%s unavailable", a, b)
+        if nums is not None:
+            nums["debts"] = await _mutual_debt(a, b)
     recent = db.rows("SELECT a, b, c, lang, created FROM pairs ORDER BY created DESC LIMIT 12")
     coords = {k: [round(v["lat"], 2), round(v["lon"], 2)] for k, v in analyze.COUNTRY_INFO.items()}
     payload = {
@@ -669,6 +700,85 @@ async def make_pair(a: str = Form(...), b: str = Form(...), c: str = Form(""), l
         return RedirectResponse(back + "&error=" + quote_plus(str(e)), 303)
     except Exception as e:  # show something useful instead of a 500
         log.exception("pair failed")
+        return RedirectResponse(back + "&error=" + quote_plus(f"AI xatosi: {type(e).__name__}"), 303)
+    return RedirectResponse(back, 303)
+
+
+# ------------------------------------------------------------------ debts
+
+
+def _debt_report(iso: str, lang: str) -> dict | None:
+    row = db.one("SELECT created, data FROM debt_reports WHERE key = ?", (f"{iso}-{lang}",))
+    if not row:
+        return None
+    data = json.loads(row["data"])
+    data["created"] = row["created"]
+    return data
+
+
+async def analyze_debt(iso: str, lang: str) -> dict:
+    data = await debt.country_debt(iso)
+    items = await debt.debt_news(iso)
+    report = await run_ai(f"qarzlar: {analyze.display_name(iso)}", debt.write_report, iso, lang, data, items)
+    with db.tx() as c:
+        c.execute(
+            "INSERT INTO debt_reports (key, iso, lang, created, data) VALUES (?,?,?,?,?) "
+            "ON CONFLICT (key) DO UPDATE SET created = excluded.created, data = excluded.data",
+            (f"{iso}-{lang}", iso, lang, collectors.now_iso(), analyze.dumps(report)),
+        )
+    return report
+
+
+@app.get("/debt", response_class=HTMLResponse)
+async def debt_page(request: Request, c: str = "", lang: str = "uz", error: str = ""):
+    iso = c.upper()[:3]
+    lang = lang if lang in analyze.LANG_NAMES else "uz"
+    figures, report = None, None
+    if pairs.valid(iso):
+        try:
+            figures = debt.view(await asyncio.wait_for(debt.country_debt(iso), 40))
+        except Exception:
+            log.exception("debt figures failed")
+            error = error or "Jahon banki ma'lumotlarini hozir olib bo'lmadi, birozdan keyin qayta oching."
+        report = await asyncio.to_thread(_debt_report, iso, lang)
+    recent = db.rows("SELECT iso, lang, created FROM debt_reports ORDER BY created DESC LIMIT 12")
+    return templates.TemplateResponse(
+        request,
+        "debt.html",
+        {
+            "iso": iso if pairs.valid(iso) else "",
+            "lang": lang,
+            "error": error,
+            "f": figures,
+            "r": report,
+            "recent": recent,
+            "options": pairs.country_options(),
+            "TIERS": pairs.TIERS,
+            "AREAS": dict(debt.AREAS),
+            "name": analyze.display_name,
+            "ai": analyze.ai_available(),
+        },
+    )
+
+
+@app.post("/debt")
+async def make_debt(c: str = Form(...), lang: str = Form("uz")):
+    iso = c.upper()[:3]
+    lang = lang if lang in analyze.LANG_NAMES else "uz"
+    back = f"/debt?c={iso}&lang={lang}"
+    if not pairs.valid(iso):
+        return RedirectResponse("/debt?error=" + quote_plus("Davlatni tanlang"), 303)
+    if not analyze.ai_available():
+        return RedirectResponse(back + "&error=" + quote_plus("AI kaliti o'rnatilmagan"), 303)
+    if _ai_lock.locked():
+        return RedirectResponse(back + "&error=" + quote_plus(busy_message()), 303)
+    try:
+        await analyze_debt(iso, lang)
+    except analyze.AIError as e:
+        log.warning("debt report failed: %s", e)
+        return RedirectResponse(back + "&error=" + quote_plus(str(e)), 303)
+    except Exception as e:  # show something useful instead of a 500
+        log.exception("debt report failed")
         return RedirectResponse(back + "&error=" + quote_plus(f"AI xatosi: {type(e).__name__}"), 303)
     return RedirectResponse(back, 303)
 
