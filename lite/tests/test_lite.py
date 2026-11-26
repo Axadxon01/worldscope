@@ -417,3 +417,20 @@ def test_map_error_when_nothing_usable(client, monkeypatch):
     monkeypatch.setitem(analyze.PROVIDERS, "gemini", lambda *a: ('{"links": []}', "m"))
     r = c.post("/map", data={"lang": "uz", "hours": "48"})
     assert "bog" in r.text and "warn" in r.text
+
+
+def test_slow_gemini_model_is_skipped(monkeypatch):
+    import httpx
+
+    def handler(request):
+        if request.url.path.endswith("/models"):
+            return httpx.Response(200, json=GEMINI_MODELS)
+        if "gemini-3.5-flash:" in request.url.path:
+            raise httpx.ReadTimeout("slow", request=request)
+        return httpx.Response(200, json={"candidates": [{"content": {"parts": [{"text": "ok"}]}}]})
+
+    real = httpx.Client
+    monkeypatch.setattr(analyze.httpx, "Client", lambda **kw: real(transport=httpx.MockTransport(handler), **kw))
+    analyze._gemini_cache.clear()
+    monkeypatch.setenv("GEMINI_API_KEY", "k")
+    assert analyze._gemini("s", "p") == ("ok", "gemini-3.5-flash-lite")

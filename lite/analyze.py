@@ -692,17 +692,25 @@ def _gemini(system: str, prompt: str, json_mode: bool = False) -> tuple[str, str
         body["generationConfig"]["responseMimeType"] = "application/json"
     last = "Gemini: javob yo'q"
     try:
-        with httpx.Client(timeout=httpx.Timeout(120.0, connect=15.0)) as client:
+        with httpx.Client(timeout=httpx.Timeout(75.0, connect=15.0)) as client:
             # Busy (503/500) models get one short retry, then the next model in the ranking is tried.
             for model in _fallback_order(_gemini_models(client, key)):
+                r = None
                 for attempt in range(2):
-                    r = client.post(
-                        f"{GEMINI_API}/models/{model}:generateContent", json=body, headers={"x-goog-api-key": key}
-                    )
+                    try:
+                        r = client.post(
+                            f"{GEMINI_API}/models/{model}:generateContent", json=body, headers={"x-goog-api-key": key}
+                        )
+                    except httpx.TimeoutException:
+                        r = None  # a model this slow is overloaded: go straight to the next one
+                        break
                     if r.status_code in (500, 503) and attempt == 0:
                         time.sleep(3)
                         continue
                     break
+                if r is None:
+                    last = f"Gemini: {model} javob bermadi (vaqt tugadi)"
+                    continue
                 if r.status_code < 400:
                     return _gemini_text(r.json()), model
                 last = _gemini_error(r)
