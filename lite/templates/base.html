@@ -6,12 +6,14 @@
 <meta name="robots" content="noindex">
 <title>{% block title %}WorldScope Lite{% endblock %}</title>
 <link rel="stylesheet" href="/static/style.css">
+{% block head %}{% endblock %}
 </head>
 <body>
 <header class="top">
   <a class="brand" href="/">World<b>Scope</b> <span>Lite</span></a>
   <nav>
     <a href="/" class="{{ 'on' if request.url.path == '/' }}">Yangiliklar</a>
+    <a href="/map" class="{{ 'on' if request.url.path == '/map' }}">Xarita</a>
     <a href="/brief" class="{{ 'on' if request.url.path == '/brief' }}">AI tahlil</a>
     <a href="/sources" class="{{ 'on' if request.url.path == '/sources' }}">Manbalar</a>
   </nav>
@@ -22,7 +24,7 @@
     <button {{ 'disabled' if state.running }}>↻ Yangilash</button>
   </form>
 </header>
-<main>{% block body %}{% endblock %}</main>
+<main class="{% block mainclass %}{% endblock %}">{% block body %}{% endblock %}</main>
 <footer>Faqat sarlavha, qisqa matn va havola saqlanadi. To'liq matn manbaning o'zida.</footer>
 </body>
 </html>

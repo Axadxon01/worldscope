@@ -43,6 +43,15 @@ CREATE TABLE IF NOT EXISTS articles (
 );
 CREATE INDEX IF NOT EXISTS articles_published ON articles (published DESC);
 CREATE INDEX IF NOT EXISTS articles_title_key ON articles (title_key);
+CREATE TABLE IF NOT EXISTS maps (
+    id          INTEGER PRIMARY KEY,
+    created     TEXT NOT NULL,
+    lang        TEXT NOT NULL,
+    hours       INTEGER NOT NULL,
+    focus       TEXT NOT NULL DEFAULT '',
+    model       TEXT NOT NULL,
+    data        TEXT NOT NULL           -- JSON {summary, links}
+);
 CREATE TABLE IF NOT EXISTS briefs (
     id          INTEGER PRIMARY KEY,
     created     TEXT NOT NULL,

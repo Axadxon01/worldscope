@@ -355,3 +355,65 @@ def test_busy_gemini_model_falls_through_to_next(monkeypatch):
     text, model = analyze._gemini("sys", "prompt")
     assert text == "ok [1]" and model == "gemini-3.5-flash-lite"
     assert sum("gemini-3.5-flash:" in c for c in calls) == 2  # one retry before moving on
+
+
+LINKS_JSON = """```json
+{"summary": "Markaziy Osiyo ko'p vektorli siyosat yuritmoqda.",
+ "links": [
+  {"from": "KAZ", "to": "USA", "type": "cooperation", "title": "Qozog'iston AQSh bilan hamkorlikni kengaytirdi",
+   "bubble": "Qozog'iston Rossiyaga qaramlikni kamaytirish uchun AQSh bilan aloqalarni kuchaytirmoqda",
+   "logic": "Tahlil: ko'p vektorli siyosat.", "evidence": [1, 99, "x"], "confidence": "high"},
+  {"from": "UZB", "to": "CHN", "type": "trade", "title": "Gaz", "bubble": "b", "logic": "l", "evidence": [2]},
+  {"from": "UZB", "to": "CHN", "type": "trade", "title": "duplicate", "bubble": "b", "logic": "l", "evidence": [2]},
+  {"from": "XXX", "to": "USA", "type": "trade", "title": "bad code", "evidence": [1]},
+  {"from": "RUS", "to": "UKR", "type": "made-up", "title": "no evidence", "evidence": []},
+  {"from": "USA", "to": "USA", "type": "trade", "title": "self", "evidence": [1]}
+ ]}
+```"""
+
+
+def test_clean_links_drops_bad_rows():
+    items = [{"id": i, "title": f"t{i}", "url": f"https://x/{i}", "publisher": "p"} for i in (1, 2)]
+    out = analyze.clean_links(analyze._json_from(LINKS_JSON), items)
+    assert [(link["from"], link["to"]) for link in out["links"]] == [("KAZ", "USA"), ("UZB", "CHN")]
+    first = out["links"][0]
+    assert [e["n"] for e in first["evidence"]] == [1] and first["confidence"] == "high"
+    assert out["links"][1]["confidence"] == "medium"  # missing confidence defaults safely
+
+
+def test_co_mentions_pairs_countries():
+    arts = [
+        {"title": "a", "url": "u1", "publisher": "A", "countries": ["UZB", "CHN"], "categories": ["trade"]},
+        {"title": "b", "url": "u2", "publisher": "B", "countries": ["CHN", "UZB", "KAZ"], "categories": ["trade"]},
+        {"title": "c", "url": "u3", "publisher": "C", "countries": ["RUS"], "categories": []},
+    ]
+    co = analyze.co_mentions(arts)
+    assert co[0]["from"] == "CHN" and co[0]["to"] == "UZB" and co[0]["count"] == 2 and co[0]["category"] == "trade"
+
+
+def test_map_page_and_generation(client, monkeypatch):
+    c, _ = client
+    r = c.get("/map")
+    assert r.status_code == 200 and "leaflet.js" in r.text and "const DATA" in r.text
+    monkeypatch.setenv("GEMINI_API_KEY", "k")
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    seen = {}
+
+    def fake(system, prompt, json_mode=False):
+        seen["json"] = json_mode
+        assert "ISO 3166-1 alpha-3" in system and "[1]" in prompt
+        return LINKS_JSON, "gemini-test"
+
+    monkeypatch.setitem(analyze.PROVIDERS, "gemini", fake)
+    r = c.post("/map", data={"lang": "uz", "hours": "48"})
+    assert r.status_code == 200 and seen["json"] is True
+    assert "Rossiyaga qaramlikni kamaytirish" in r.text and "gemini-test" in r.text
+    assert "</script><script>" not in r.text  # data is embedded safely
+
+
+def test_map_error_when_nothing_usable(client, monkeypatch):
+    c, _ = client
+    monkeypatch.setenv("GEMINI_API_KEY", "k")
+    monkeypatch.setitem(analyze.PROVIDERS, "gemini", lambda *a: ('{"links": []}', "m"))
+    r = c.post("/map", data={"lang": "uz", "hours": "48"})
+    assert "bog" in r.text and "warn" in r.text

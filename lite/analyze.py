@@ -597,12 +597,12 @@ def model_label() -> str:
     return " → ".join(names[p] for p in providers()) or "—"
 
 
-def _anthropic(system: str, prompt: str) -> tuple[str, str]:
+def _anthropic(system: str, prompt: str, json_mode: bool = False) -> tuple[str, str]:
     import anthropic
 
     try:
         resp = anthropic.Anthropic().messages.create(
-            model=MODEL, max_tokens=2000, system=system, messages=[{"role": "user", "content": prompt}]
+            model=MODEL, max_tokens=4000, system=system, messages=[{"role": "user", "content": prompt}]
         )
     except anthropic.APIStatusError as e:
         detail = str(getattr(e, "body", "") or e)
@@ -681,13 +681,15 @@ def _gemini_error(r: httpx.Response) -> str:
     return f"Gemini: HTTP {r.status_code} {msg[:120]}".strip()
 
 
-def _gemini(system: str, prompt: str) -> tuple[str, str]:
+def _gemini(system: str, prompt: str, json_mode: bool = False) -> tuple[str, str]:
     key = os.environ["GEMINI_API_KEY"]
     body = {
         "systemInstruction": {"parts": [{"text": system}]},
         "contents": [{"role": "user", "parts": [{"text": prompt}]}],
         "generationConfig": {"maxOutputTokens": 8192, "temperature": 0.3},
     }
+    if json_mode:
+        body["generationConfig"]["responseMimeType"] = "application/json"
     last = "Gemini: javob yo'q"
     try:
         with httpx.Client(timeout=httpx.Timeout(120.0, connect=15.0)) as client:
@@ -735,25 +737,35 @@ def _gemini_text(data: dict) -> str:
 PROVIDERS = {"anthropic": _anthropic, "gemini": _gemini}
 
 
-def complete(system: str, prompt: str) -> tuple[str, str]:
+def complete(system: str, prompt: str, json_mode: bool = False) -> tuple[str, str]:
     """Try each configured provider in turn; report every failure if all fail."""
     errors = []
     for name in providers():
         try:
-            return PROVIDERS[name](system, prompt)
+            return PROVIDERS[name](system, prompt, json_mode)
         except AIError as e:
             errors.append(str(e))
     raise AIError("; ".join(errors) or "AI kaliti o'rnatilmagan")
+
+
+def numbered(items: list[dict]) -> list[str]:
+    lines = []
+    for n, a in enumerate(items, 1):
+        snippet = f" — {a['summary'][:240]}" if a["summary"] else ""
+        lines.append(f"[{n}] {a['title']} ({a['publisher']}, {a['published'][:16].replace('T', ' ')} UTC){snippet}")
+    return lines
+
+
+def _cite(items: list[dict], n: int) -> dict:
+    a = items[n - 1]
+    return {"n": n, "article_id": a["id"], "title": a["title"], "url": a["url"], "publisher": a["publisher"]}
 
 
 def write_brief(articles: list[dict], lang: str, focus: str = "") -> dict:
     items = build_items(cluster(articles))
     if not items:
         raise ValueError("Tahlil uchun yangilik yo'q. Avval manbalarni yangilang.")
-    lines = []
-    for n, a in enumerate(items, 1):
-        snippet = f" — {a['summary'][:240]}" if a["summary"] else ""
-        lines.append(f"[{n}] {a['title']} ({a['publisher']}, {a['published'][:16].replace('T', ' ')} UTC){snippet}")
+    lines = numbered(items)
     task = "Write the brief."
     if focus:
         task = f"Focus the brief on: {focus}. Ignore items unrelated to it; say so if few are relevant."
@@ -763,17 +775,171 @@ def write_brief(articles: list[dict], lang: str, focus: str = "") -> dict:
     )
     used = sorted({int(m) for m in re.findall(r"\[(\d+)\]", body) if 1 <= int(m) <= len(items)})
     body = re.sub(r"\[(\d+)\]", lambda m: m.group(0) if 1 <= int(m.group(1)) <= len(items) else "", body)
-    cites = [
-        {
-            "n": n,
-            "article_id": items[n - 1]["id"],
-            "title": items[n - 1]["title"],
-            "url": items[n - 1]["url"],
-            "publisher": items[n - 1]["publisher"],
-        }
-        for n in used
-    ]
-    return {"body": body, "cites": cites, "model": model}
+    return {"body": body, "cites": [_cite(items, n) for n in used], "model": model}
+
+
+# ------------------------------------------------------------------ relationship map
+
+# Uzbek (Latin) names for the countries that appear most; the rest stay in English.
+UZ_NAMES = {
+    "UZB": "O'zbekiston", "KAZ": "Qozog'iston", "KGZ": "Qirg'iziston", "TJK": "Tojikiston", "TKM": "Turkmaniston",
+    "AFG": "Afg'oniston", "RUS": "Rossiya", "UKR": "Ukraina", "BLR": "Belarus", "USA": "AQSh", "CAN": "Kanada",
+    "CHN": "Xitoy", "JPN": "Yaponiya", "KOR": "Janubiy Koreya", "PRK": "Shimoliy Koreya", "IND": "Hindiston",
+    "PAK": "Pokiston", "IRN": "Eron", "IRQ": "Iroq", "SYR": "Suriya", "ISR": "Isroil", "PSE": "Falastin",
+    "SAU": "Saudiya Arabistoni", "ARE": "BAA", "QAT": "Qatar", "TUR": "Turkiya", "AZE": "Ozarbayjon",
+    "ARM": "Armaniston", "GEO": "Gruziya", "GBR": "Buyuk Britaniya", "FRA": "Fransiya", "DEU": "Germaniya",
+    "ITA": "Italiya", "ESP": "Ispaniya", "POL": "Polsha", "CHE": "Shveytsariya", "NLD": "Niderlandiya",
+    "BEL": "Belgiya", "SWE": "Shvetsiya", "NOR": "Norvegiya", "FIN": "Finlandiya", "HUN": "Vengriya",
+    "SRB": "Serbiya", "GRC": "Gretsiya", "EGY": "Misr", "LBY": "Liviya", "SDN": "Sudan", "ETH": "Efiopiya",
+    "ZAF": "Janubiy Afrika", "NGA": "Nigeriya", "BRA": "Braziliya", "ARG": "Argentina", "MEX": "Meksika",
+    "VEN": "Venesuela", "AUS": "Avstraliya", "IDN": "Indoneziya", "MYS": "Malayziya", "VNM": "Vyetnam",
+    "TWN": "Tayvan", "MNG": "Mo'g'uliston", "HKG": "Gonkong", "BGD": "Bangladesh", "JOR": "Iordaniya",
+    "LBN": "Livan", "YEM": "Yaman", "KWT": "Quvayt", "OMN": "Ummon", "MDA": "Moldova", "ROU": "Ruminiya",
+}
+
+
+def display_name(iso: str, lang: str = "uz") -> str:
+    info = COUNTRY_INFO.get(iso, {})
+    return (UZ_NAMES.get(iso) if lang == "uz" else None) or info.get("name", iso)
+
+
+LINK_TYPES = {
+    "cooperation": "Hamkorlik",
+    "trade": "Savdo / investitsiya",
+    "aid": "Yordam / moliya",
+    "diplomacy": "Diplomatiya",
+    "pressure": "Bosim / sanksiya",
+    "conflict": "Mojaro",
+    "dependence": "Qaramlik",
+    "rivalry": "Raqobat",
+}
+
+LINKS_SYSTEM = """You are the geopolitical analyst of WorldScope. From a numbered list of recent news
+items, find the most significant relationships between countries and explain the logic underneath
+each one, so that a student who reads only the map understands what is really going on.
+
+Return JSON only, in this shape:
+{{"summary": "...", "links": [
+  {{"from": "KAZ", "to": "USA", "type": "cooperation", "title": "...", "bubble": "...", "logic": "...",
+    "evidence": [3, 7], "confidence": "high"}}
+]}}
+
+Fields:
+- from / to: ISO 3166-1 alpha-3 codes of two different countries. "from" is the side that acts or
+  initiates; "to" is the side it acts towards. For international bodies use the member state that acts,
+  or skip the link.
+- type: one of {types}.
+- title: at most 8 words naming what happened.
+- bubble: one sentence of at most 22 words giving the essence, the "why it matters" a reader should
+  take away. Example of the depth wanted: "Kazakhstan widens ties with the US to lessen its dependence
+  on Russia" rather than "Kazakhstan and the US signed a deal".
+- logic: 2-4 sentences: the underlying interest, motive or strategy (economic, security, energy,
+  domestic politics), and the likely consequence. This is analysis: ground it in the cited items and in
+  well-established background, and do not invent events, figures or quotes.
+- evidence: item numbers that report the link. At least one.
+- confidence: high when several independent outlets report it, medium for one reliable outlet,
+  low when it rests on one party's own claim or a single Telegram channel.
+- summary: 2-3 sentences on the overall pattern the map shows.
+
+Give 6 to 14 links, most important first, and prefer links that involve {focus_hint}.
+Skip items that do not describe a relationship between two countries. Write every text field in {lang}."""
+
+
+def _json_from(text: str) -> dict:
+    text = text.strip()
+    if text.startswith("```"):
+        text = re.sub(r"^```(?:json)?|```$", "", text, flags=re.M).strip()
+    try:
+        return json.loads(text)
+    except ValueError:
+        m = re.search(r"\{.*\}", text, re.S)
+        if m:
+            try:
+                return json.loads(m.group(0))
+            except ValueError:
+                pass
+    raise AIError("AI javobini JSON sifatida o'qib bo'lmadi")
+
+
+def clean_links(raw: dict, items: list[dict]) -> dict:
+    """Keep only links that point at real countries and real items; trim every text field."""
+    out, seen = [], set()
+    for link in raw.get("links") or []:
+        if not isinstance(link, dict):
+            continue
+        a, b = str(link.get("from", "")).upper()[:3], str(link.get("to", "")).upper()[:3]
+        if a == b or a not in COUNTRY_INFO or b not in COUNTRY_INFO or (a, b) in seen:
+            continue
+        ev = []
+        for n in link.get("evidence") or []:
+            try:
+                n = int(n)
+            except (TypeError, ValueError):
+                continue
+            if 1 <= n <= len(items) and n not in ev:
+                ev.append(n)
+        if not ev:
+            continue  # a link nobody reported is not shown
+        seen.add((a, b))
+        kind = link.get("type") if link.get("type") in LINK_TYPES else "diplomacy"
+        conf = link.get("confidence") if link.get("confidence") in ("high", "medium", "low") else "medium"
+        out.append(
+            {
+                "from": a,
+                "to": b,
+                "type": kind,
+                "confidence": conf,
+                "title": str(link.get("title", ""))[:120],
+                "bubble": str(link.get("bubble", ""))[:220],
+                "logic": str(link.get("logic", ""))[:900],
+                "evidence": [_cite(items, n) for n in ev],
+            }
+        )
+    return {"summary": str(raw.get("summary", ""))[:600], "links": out[:16]}
+
+
+def write_links(articles: list[dict], lang: str, focus: str = "") -> dict:
+    items = build_items(cluster([a for a in articles if a["countries"]] or articles), limit=80)
+    if not items:
+        raise ValueError("Xarita uchun yangilik yo'q. Avval manbalarni yangilang.")
+    system = LINKS_SYSTEM.format(
+        types=", ".join(LINK_TYPES),
+        lang=LANG_NAMES.get(lang, "English"),
+        focus_hint=focus or "Central Asia, Uzbekistan and the major powers",
+    )
+    task = "Return the JSON." + (f" Focus on: {focus}." if focus else "")
+    text, model = complete(system, "News items:\n" + "\n".join(numbered(items)) + "\n\n" + task, json_mode=True)
+    result = clean_links(_json_from(text), items)
+    if not result["links"]:
+        raise AIError("AI davlatlar orasidagi bog'liqlikni topa olmadi; davrni kengaytirib ko'ring")
+    result["model"] = model
+    return result
+
+
+def co_mentions(articles: list[dict], limit: int = 18) -> list[dict]:
+    """The no-AI map: country pairs that appear in the same headlines, with the latest example."""
+    pairs: dict[tuple[str, str], list[dict]] = {}
+    for a in articles:
+        cs = [c for c in a["countries"] if c in COUNTRY_INFO][:4]
+        for i, x in enumerate(cs):
+            for y in cs[i + 1 :]:
+                pairs.setdefault(tuple(sorted((x, y))), []).append(a)
+    ranked = sorted(pairs.items(), key=lambda kv: len({a["publisher"] for a in kv[1]}), reverse=True)
+    out = []
+    for (x, y), arts in ranked[:limit]:
+        if len(arts) < 2:
+            break
+        cats = Counter(c for a in arts for c in a["categories"] if c != "central-asia")
+        out.append(
+            {
+                "from": x,
+                "to": y,
+                "count": len(arts),
+                "category": cats.most_common(1)[0][0] if cats else "",
+                "examples": [{"title": a["title"], "url": a["url"], "publisher": a["publisher"]} for a in arts[:3]],
+            }
+        )
+    return out
 
 
 def dumps(v) -> str:

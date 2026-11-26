@@ -313,6 +313,68 @@ async def make_brief(lang: str = Form("uz"), hours: str = Form("24"), focus: str
     return RedirectResponse(f"/brief?id={new_id}", 303)
 
 
+@app.get("/map", response_class=HTMLResponse)
+def map_page(request: Request, id: int | None = None, error: str = "", hours: str = "48"):
+    maps = db.rows("SELECT id, created, lang, hours, focus FROM maps ORDER BY id DESC LIMIT 20")
+    if id:
+        current = db.one("SELECT * FROM maps WHERE id=?", (id,))
+    else:
+        current = db.one("SELECT * FROM maps ORDER BY id DESC LIMIT 1")
+    if current:
+        current["data"] = json.loads(current["data"])
+    h = _hours(hours, 48)
+    coords = {k: [round(v["lat"], 2), round(v["lon"], 2)] for k, v in analyze.COUNTRY_INFO.items()}
+    lang = current["lang"] if current else "uz"
+    names = {k: analyze.display_name(k, lang) for k in analyze.COUNTRY_INFO}
+    payload = {
+        "geo": {v["name"]: k for k, v in analyze.COUNTRY_INFO.items()},
+        "links": current["data"]["links"] if current else [],
+        "co": analyze.co_mentions(_articles(h)),
+        "coords": coords,
+        "names": names,
+        "types": analyze.LINK_TYPES,
+        "cats": {k: v[0] for k, v in analyze.CATEGORIES.items()},
+    }
+    return templates.TemplateResponse(
+        request,
+        "map.html",
+        {
+            "maps": maps,
+            "current": current,
+            "ai": analyze.ai_available(),
+            "error": error,
+            "hours": h,
+            "payload": Markup(json.dumps(payload, ensure_ascii=False).replace("</", "<\\/")),
+            "types": analyze.LINK_TYPES,
+        },
+    )
+
+
+@app.post("/map")
+async def make_map(lang: str = Form("uz"), hours: str = Form("48"), focus: str = Form("")):
+    h = _hours(hours, 48)
+    focus = focus.strip()[:200]
+    if not analyze.ai_available():
+        return RedirectResponse("/map?error=" + quote_plus("AI kaliti o'rnatilmagan"), 303)
+    lang = lang if lang in analyze.LANG_NAMES else "uz"
+    try:
+        result = await asyncio.to_thread(analyze.write_links, _articles(h), lang, focus)
+    except (ValueError, analyze.AIError) as e:
+        log.warning("map failed: %s", e)
+        return RedirectResponse("/map?error=" + quote_plus(str(e)), 303)
+    except Exception as e:  # show something useful instead of a 500
+        log.exception("map failed")
+        return RedirectResponse("/map?error=" + quote_plus(f"AI xatosi: {type(e).__name__}"), 303)
+    data = {"summary": result["summary"], "links": result["links"]}
+    with db.tx() as c:
+        cur = c.execute(
+            "INSERT INTO maps (created, lang, hours, focus, model, data) VALUES (?,?,?,?,?,?)",
+            (collectors.now_iso(), lang, h, focus, result["model"], analyze.dumps(data)),
+        )
+        new_id = cur.lastrowid
+    return RedirectResponse(f"/map?id={new_id}", 303)
+
+
 @app.get("/sources", response_class=HTMLResponse)
 def sources_page(request: Request, error: str = ""):
     srcs = db.rows("""SELECT s.*, (SELECT COUNT(*) FROM articles a WHERE a.source_id=s.id) AS stored
