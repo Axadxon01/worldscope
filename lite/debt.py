@@ -222,10 +222,16 @@ async def country_debt(iso: str) -> dict:
     if cached is not None:
         return cached
     async with httpx.AsyncClient(headers={"User-Agent": collectors.UA}, timeout=httpx.Timeout(30.0)) as client:
-        debt = {code: await _series(client, iso, code, src) for code, src, _, _ in DEBT_SERIES}
-        outcomes = {code: await _series(client, iso, code, src) for code, src, *_ in OUTCOME_SERIES}
-        creditors = await _creditors(client, iso)
-        projects = await _wb_projects(client, iso)
+        debt_codes = [(code, src) for code, src, _, _ in DEBT_SERIES]
+        out_codes = [(code, src) for code, src, *_ in OUTCOME_SERIES]
+        results = await asyncio.gather(
+            *(_series(client, iso, code, src) for code, src in debt_codes + out_codes),
+            _creditors(client, iso),
+            _wb_projects(client, iso),
+        )
+        series, creditors, projects = results[: len(debt_codes) + len(out_codes)], results[-2], results[-1]
+        debt = dict(zip([c for c, _ in debt_codes], series[: len(debt_codes)], strict=True))
+        outcomes = dict(zip([c for c, _ in out_codes], series[len(debt_codes) :], strict=True))
     data = {
         "debt": debt,
         "outcomes": outcomes,

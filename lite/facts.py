@@ -21,6 +21,8 @@ import db
 
 HERE = Path(__file__).parent
 CACHE_DAYS = 30
+TRADE_TIMEOUT = 20  # Comtrade can take minutes for big traders; the page does not wait that long
+TIMED_OUT = object()
 
 # (World Bank code, label, unit)
 INDICATORS = [
@@ -49,15 +51,20 @@ def human(value: float | None, unit: str) -> str:
 
 async def _world_bank(client: httpx.AsyncClient, isos: list[str]) -> dict[str, dict]:
     out: dict[str, dict] = {iso: {} for iso in isos}
-    for code, _, _ in INDICATORS:
+
+    async def one(code: str) -> list:
         try:
             r = await client.get(
                 f"https://api.worldbank.org/v2/country/{';'.join(isos)}/indicator/{code}",
                 params={"format": "json", "mrnev": 1, "per_page": 50},
             )
-            rows = r.json()[1] if r.status_code == 200 and len(r.json()) > 1 else []
+            return r.json()[1] if r.status_code == 200 and len(r.json()) > 1 else []
         except (httpx.HTTPError, ValueError, IndexError, TypeError):
-            rows = []
+            return []
+
+    # all indicators at once: one slow answer must not hold up the page
+    results = await asyncio.gather(*(one(code) for code, _, _ in INDICATORS))
+    for (code, _, _), rows in zip(INDICATORS, results, strict=True):
         for row in rows or []:
             iso = row.get("countryiso3code")
             if iso in out and row.get("value") is not None:
@@ -112,16 +119,30 @@ async def pair_facts(a: str, b: str) -> dict:
     tkey = f"trade:{x}-{y}"
     trade_cached = await asyncio.to_thread(db.cache_get, tkey, CACHE_DAYS)
     async with httpx.AsyncClient(headers={"User-Agent": collectors.UA}, timeout=httpx.Timeout(20.0)) as client:
-        if missing:
-            fetched = await _world_bank(client, missing)
-            for iso, vals in fetched.items():
-                result["countries"][iso] = vals
-                if vals:
-                    await asyncio.to_thread(db.cache_put, f"wb:{iso}", vals)
-        if trade_cached is not None:
-            trade = trade_cached.get("trade")
-        else:
-            trade = await _trade(client, x, y)
+
+        async def no_wb():
+            return {}
+
+        async def cached_trade():
+            return trade_cached.get("trade")
+
+        async def fresh_trade():
+            try:
+                return await asyncio.wait_for(_trade(client, x, y), TRADE_TIMEOUT)
+            except TimeoutError:
+                return TIMED_OUT
+
+        fetched, trade = await asyncio.gather(
+            _world_bank(client, missing) if missing else no_wb(),
+            cached_trade() if trade_cached is not None else fresh_trade(),
+        )
+        for iso, vals in fetched.items():
+            result["countries"][iso] = vals
+            if vals:
+                await asyncio.to_thread(db.cache_put, f"wb:{iso}", vals)
+        if trade is TIMED_OUT:
+            trade = None  # slow today: show the page without it and ask again next time
+        elif trade_cached is None:
             await asyncio.to_thread(db.cache_put, tkey, {"trade": trade})
     if trade and a != x:
         trade = {**trade, "a_to_b": trade.get("b_to_a"), "b_to_a": trade.get("a_to_b")}

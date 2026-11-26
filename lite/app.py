@@ -633,10 +633,11 @@ async def pair_page(request: Request, a: str = "", b: str = "", c: str = "", lan
             nums = dict(result["facts"])
         else:  # the figures need no AI: show them before any analysis exists
             try:
-                f = await asyncio.wait_for(facts.pair_facts(a, b), 25)
+                f = await asyncio.wait_for(facts.pair_facts(a, b), 40)
                 nums = {"rows": facts.rows_for(f, a, b), "trade": f.get("trade")}
             except Exception:
                 log.warning("facts for %s-%s unavailable", a, b)
+                nums = {"rows": [], "trade": None}
         if nums is not None:
             nums["debts"] = await _mutual_debt(a, b)
     recent = db.rows("SELECT a, b, c, lang, created FROM pairs ORDER BY created DESC LIMIT 12")
