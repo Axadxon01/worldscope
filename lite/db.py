@@ -52,6 +52,14 @@ CREATE TABLE IF NOT EXISTS maps (
     model       TEXT NOT NULL,
     data        TEXT NOT NULL           -- JSON {summary, links}
 );
+CREATE TABLE IF NOT EXISTS pairs (
+    key         TEXT PRIMARY KEY,       -- "AAA-BBB-lang", codes sorted
+    a           TEXT NOT NULL,
+    b           TEXT NOT NULL,
+    lang        TEXT NOT NULL,
+    created     TEXT NOT NULL,
+    data        TEXT NOT NULL           -- JSON analysis
+);
 CREATE TABLE IF NOT EXISTS briefs (
     id          INTEGER PRIMARY KEY,
     created     TEXT NOT NULL,

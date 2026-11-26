@@ -23,6 +23,14 @@ To'liq WorldScope (`frontend/`, `backend/`) o'zgarishsiz qoladi; bu papka undan 
   davlatlar kulrang chiziq bilan ko'rsatiladi. Chegaralar saytning o'zida (Natural Earth), tashqi xizmat
   yoki kalit kerak emas.
 
+- **Ikki davlat** (`/pair`): 196 davlatning (BMT a'zolari, Vatikan, Falastin, Tayvan) istalgan ikkitasini
+  ro'yxatdan yoki xaritadan bosib tanlaysiz. Davlatlar uch guruhda: qudratli, o'rta va rivojlanayotgan
+  (`pairs.py` dagi `TIER_1`/`TIER_2` ro'yxatlarini o'zgartirish mumkin). Dastur Google News'dan aynan shu
+  juftlik haqidagi yangiliklarni qidiradi, AI esa munosabat darajasini (−5…+5), yaxshi va yomon tomonlarni,
+  sohalar holatini, kuchlar nisbatini, uchinchi tomonlarni va ehtimolligi ko'rsatilgan 3 ta ssenariyni yozadi.
+  Yangilikdan olingan da'volar raqam bilan manbaga bog'lanadi, umumiy bilimdan olinganlari "umumiy" deb belgilanadi.
+  Natija saqlanadi; `/pair?a=UZB&b=AUS` havolasi uni qayta ochadi.
+
 Faqat sarlavha, qisqa matn va havola saqlanadi. Paywall va bot himoyasi aylanib o'tilmaydi.
 Instagram'ning ochiq API'si yo'q va scraping qoidalariga zid, shuning uchun qo'shilmagan.
 

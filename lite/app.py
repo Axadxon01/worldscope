@@ -27,6 +27,7 @@ from markupsafe import Markup, escape
 import analyze
 import collectors
 import db
+import pairs
 
 HERE = Path(__file__).parent
 REFRESH_MIN = int(os.environ.get("WS_REFRESH_MIN", "30"))
@@ -373,6 +374,80 @@ async def make_map(lang: str = Form("uz"), hours: str = Form("48"), focus: str =
         )
         new_id = cur.lastrowid
     return RedirectResponse(f"/map?id={new_id}", 303)
+
+
+def _pair_db_news(a: str, b: str) -> list[dict]:
+    """Stored articles from the last week that are tagged with both countries."""
+    return [x for x in _articles(KEEP_DAYS * 24, country=a) if b in x["countries"]][:20]
+
+
+@app.get("/pair", response_class=HTMLResponse)
+def pair_page(request: Request, a: str = "", b: str = "", lang: str = "uz", error: str = ""):
+    a, b = a.upper()[:3], b.upper()[:3]
+    lang = lang if lang in analyze.LANG_NAMES else "uz"
+    result = None
+    if pairs.valid(a) and pairs.valid(b) and a != b:
+        row = db.one("SELECT * FROM pairs WHERE key=?", (pairs.key(a, b, lang),))
+        if row:
+            result = json.loads(row["data"])
+            result["created"] = row["created"]
+    recent = db.rows("SELECT a, b, lang, created FROM pairs ORDER BY created DESC LIMIT 12")
+    coords = {k: [round(v["lat"], 2), round(v["lon"], 2)] for k, v in analyze.COUNTRY_INFO.items()}
+    payload = {
+        "a": a,
+        "b": b,
+        "coords": coords,
+        "geo": {v["name"]: k for k, v in analyze.COUNTRY_INFO.items() if pairs.valid(k)},
+        "names": {k: analyze.display_name(k) for k in pairs.SOVEREIGN if k in analyze.COUNTRY_INFO},
+        "tiers": {k: pairs.tier(k) for k in pairs.SOVEREIGN},
+    }
+    return templates.TemplateResponse(
+        request,
+        "pair.html",
+        {
+            "a": a,
+            "b": b,
+            "lang": lang,
+            "error": error,
+            "result": result,
+            "recent": recent,
+            "options": pairs.country_options(),
+            "TIERS": pairs.TIERS,
+            "TIER_SHORT": pairs.TIER_SHORT,
+            "tier": pairs.tier,
+            "name": analyze.display_name,
+            "ai": analyze.ai_available(),
+            "db_news": _pair_db_news(a, b) if a and b and not result and pairs.valid(a) and pairs.valid(b) else [],
+            "payload": Markup(json.dumps(payload, ensure_ascii=False).replace("</", "<\\/")),
+        },
+    )
+
+
+@app.post("/pair")
+async def make_pair(a: str = Form(...), b: str = Form(...), lang: str = Form("uz")):
+    a, b = a.upper()[:3], b.upper()[:3]
+    lang = lang if lang in analyze.LANG_NAMES else "uz"
+    back = f"/pair?a={a}&b={b}&lang={lang}"
+    if not (pairs.valid(a) and pairs.valid(b)) or a == b:
+        return RedirectResponse(back + "&error=" + quote_plus("Ikki xil davlatni tanlang"), 303)
+    if not analyze.ai_available():
+        return RedirectResponse(back + "&error=" + quote_plus("AI kaliti o'rnatilmagan"), 303)
+    fetched = await pairs.pair_news(a, b)
+    items = pairs.merge_news(_pair_db_news(a, b), fetched)
+    try:
+        result = await asyncio.to_thread(pairs.write_pair, a, b, lang, items)
+    except analyze.AIError as e:
+        log.warning("pair failed: %s", e)
+        return RedirectResponse(back + "&error=" + quote_plus(str(e)), 303)
+    except Exception as e:  # show something useful instead of a 500
+        log.exception("pair failed")
+        return RedirectResponse(back + "&error=" + quote_plus(f"AI xatosi: {type(e).__name__}"), 303)
+    with db.tx() as c:
+        c.execute(
+            "INSERT OR REPLACE INTO pairs (key, a, b, lang, created, data) VALUES (?,?,?,?,?,?)",
+            (pairs.key(a, b, lang), a, b, lang, collectors.now_iso(), analyze.dumps(result)),
+        )
+    return RedirectResponse(back, 303)
 
 
 @app.get("/sources", response_class=HTMLResponse)

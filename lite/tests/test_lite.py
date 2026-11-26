@@ -470,3 +470,66 @@ def test_map_retries_broken_json(monkeypatch):
     ]
     out = analyze.write_links(arts, "uz")
     assert out["links"] and out["model"] == "m"
+
+
+def test_196_states_and_tiers():
+    import pairs
+
+    assert len(pairs.SOVEREIGN) == 196 == len(set(pairs.SOVEREIGN))
+    assert all(c in analyze.COUNTRY_INFO for c in pairs.SOVEREIGN)
+    assert pairs.tier("USA") == 1 and pairs.tier("AUS") == 2 and pairs.tier("MDG") == 3
+    assert set(pairs.SOVEREIGN) >= pairs.TIER_1 | pairs.TIER_2
+    opts = pairs.country_options()
+    assert len(opts) == 196 and opts[0]["tier"] == 1 and opts[-1]["tier"] == 3
+    assert pairs.key("UZB", "AUS", "uz") == pairs.key("AUS", "UZB", "uz") == "AUS-UZB-uz"
+
+
+PAIR_JSON = """{"score": 2, "label": "Uzoq, lekin do'stona", "essence": "Avstraliya O'zbekistonda ta'lim va konchilik imkoniyatini ko'radi.",
+ "summary": "s", "asymmetry": "a",
+ "good": [{"area": "Ta'lim", "text": "Talabalar", "evidence": [1, 77]}, {"area": "Konchilik", "text": "Investitsiya", "evidence": []}],
+ "bad": [{"area": "Masofa", "text": "Uzoq", "evidence": ["x"]}],
+ "areas": [{"area": "Diplomatiya", "state": "positive", "note": "n"}, {"area": "Xavfsizlik", "state": "weird", "note": "n"}],
+ "third_parties": [{"iso3": "CHN", "role": "r"}, {"iso3": "UZB", "role": "self"}, {"iso3": "ZZZ", "role": "bad"}],
+ "scenarios": [{"title": "Asosiy", "probability": "high", "horizon": "1-2 yil", "trigger": "t", "outcome": "o"},
+               {"title": "Yaxshi", "probability": "medium", "outcome": "o"}, {"title": "Yomon", "probability": "nope", "outcome": "o"}],
+ "watch": ["w1"], "data_note": "kam xabar"}"""
+
+
+def test_pair_page_flow(client, monkeypatch):
+    import pairs
+
+    c, _ = client
+    r = c.get("/pair")
+    assert r.status_code == 200 and "Qudratli davlatlar" in r.text and "Madagascar" in r.text
+    assert c.get("/pair?a=UZB&b=AUS").status_code == 200
+
+    async def fake_news(a, b):
+        return [
+            collectors.item("Australia and Uzbekistan sign education deal", "https://x/au", "", "ABC", NOW.isoformat())
+        ]
+
+    monkeypatch.setattr(pairs, "pair_news", fake_news)
+    monkeypatch.setenv("GEMINI_API_KEY", "k")
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    seen = {}
+
+    def fake_ai(system, prompt, json_mode=False):
+        seen["prompt"] = prompt
+        return PAIR_JSON, "gemini-test"
+
+    monkeypatch.setitem(analyze.PROVIDERS, "gemini", fake_ai)
+    r = c.post("/pair", data={"a": "UZB", "b": "AUS", "lang": "uz"})
+    assert r.status_code == 200
+    assert "middle power" in seen["prompt"] and "developing country" in seen["prompt"]
+    assert "education deal" in seen["prompt"]
+    t = r.text
+    assert "Uzoq, lekin do" in t and "+2" in t and "konchilik imkoniyatini" in t
+    assert 'href="#s1"' in t and "#s77" not in t and "umumiy" in t
+    assert "Xitoy:" in t and "ZZZ" not in t  # unknown third party dropped, Uzbek name used
+    assert c.get("/pair?a=AUS&b=UZB").text.count("konchilik imkoniyatini") == 1  # same cache both ways
+
+
+def test_pair_rejects_same_or_unknown_country(client):
+    c, _ = client
+    assert "Ikki xil" in c.post("/pair", data={"a": "UZB", "b": "UZB"}).text
+    assert "Ikki xil" in c.post("/pair", data={"a": "UZB", "b": "HKG"}).text  # not a sovereign state

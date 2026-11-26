@@ -1,0 +1,163 @@
+{% extends "base.html" %}
+{% block title %}{% if result %}{{ name(a) }} ↔ {{ name(b) }} · {% endif %}Ikki davlat · WorldScope Lite{% endblock %}
+{% block head %}
+<link rel="stylesheet" href="/static/leaflet/leaflet.css">
+<script src="/static/leaflet/leaflet.js"></script>
+<script src="/static/world/topojson-client.min.js"></script>
+{% endblock %}
+{% macro picker(field, current) %}
+<select name="{{ field }}" id="sel-{{ field }}" required>
+  <option value="">— davlat —</option>
+  {% for t, label in TIERS.items() %}
+  <optgroup label="{{ label }}">
+    {% for o in options if o.tier == t %}
+    <option value="{{ o.iso }}" {{ 'selected' if o.iso == current }}>{{ o.name }}{% if o.name != o.en %} ({{ o.en }}){% endif %}</option>
+    {% endfor %}
+  </optgroup>
+  {% endfor %}
+</select>
+{% endmacro %}
+{% macro ev(list) %}{% for n in list %}<a class="cite" href="#s{{ n }}">{{ n }}</a>{% endfor %}{% if not list %}<span class="bg" title="Yangiliklardan emas, umumiy ma'lum faktlardan">umumiy</span>{% endif %}{% endmacro %}
+
+{% block body %}
+<form method="post" action="/pair" class="pairform card" id="pairform">
+  <div class="pickrow">
+    <div class="pick a"><span class="tag">A</span>{{ picker('a', a) }}</div>
+    <button type="button" class="ghost" id="swap" title="Almashtirish">⇄</button>
+    <div class="pick b"><span class="tag">B</span>{{ picker('b', b) }}</div>
+    <select name="lang" title="Til"><option value="uz" {{ 'selected' if lang=='uz' }}>O'zbekcha</option><option value="ru" {{ 'selected' if lang=='ru' }}>Русский</option><option value="en" {{ 'selected' if lang=='en' }}>English</option></select>
+    <button id="go" {{ 'disabled' if not ai }}>{{ 'Qayta tahlil' if result else 'Tahlil qilish' }}</button>
+  </div>
+  <p class="muted small" id="hint">Ro'yxatdan tanlang yoki xaritada ikki davlatni ketma-ket bosing. 196 davlat uch guruhda: qudratli, o'rta va rivojlanayotgan.</p>
+  <p class="muted small" id="wait" hidden>Yangiliklar qidirilmoqda va AI tahlil yozmoqda: 20–90 soniya…</p>
+  {% if not ai %}<p class="warn">AI o'chiq: serverda GEMINI_API_KEY yoki ANTHROPIC_API_KEY kerak.</p>{% endif %}
+  {% if error %}<p class="warn">{{ error }}</p>{% endif %}
+</form>
+
+<div id="pmap"></div>
+
+{% if result %}
+{% set r = result %}
+<section class="pairres">
+  <header class="phead">
+    <div class="side a"><h2>{{ name(a) }}</h2><span class="tierb t{{ tier(a) }}">{{ TIER_SHORT[tier(a)] }}</span></div>
+    <div class="gauge" title="−5 dushmanlik … +5 ittifoq">
+      <div class="bar"><i style="left: {{ (r.score + 5) * 10 }}%"></i></div>
+      <b class="{{ 'pos' if r.score > 1 else 'neg' if r.score < -1 else 'mid' }}">{{ '%+d'|format(r.score) }}</b>
+      <span>{{ r.label }}</span>
+    </div>
+    <div class="side b"><h2>{{ name(b) }}</h2><span class="tierb t{{ tier(b) }}">{{ TIER_SHORT[tier(b)] }}</span></div>
+  </header>
+
+  <div class="essence big">💡 {{ r.essence }}</div>
+  <p class="psum">{{ r.summary }}</p>
+  {% if r.asymmetry %}<p class="asym"><b>Kuchlar nisbati:</b> {{ r.asymmetry }}</p>{% endif %}
+
+  <div class="gb">
+    <div class="col good"><h3>✓ Yaxshi tomonlari</h3>
+      <ul>{% for p in r.good %}<li><b>{{ p.area }}</b> {{ p.text }} {{ ev(p.evidence) }}</li>{% else %}<li class="muted">Sezilarli ijobiy jihat topilmadi.</li>{% endfor %}</ul>
+    </div>
+    <div class="col bad"><h3>✕ Muammo va ziddiyatlar</h3>
+      <ul>{% for p in r.bad %}<li><b>{{ p.area }}</b> {{ p.text }} {{ ev(p.evidence) }}</li>{% else %}<li class="muted">Jiddiy ziddiyat topilmadi.</li>{% endfor %}</ul>
+    </div>
+  </div>
+
+  {% if r.areas %}
+  <h3>Sohalar bo'yicha</h3>
+  <div class="areas">{% for x in r.areas %}
+    <div class="area s-{{ x.state }}"><b>{{ x.area }}</b><span class="st">{{ {'positive':'ijobiy','mixed':'aralash','negative':'salbiy','none':'deyarli yo\'q'}[x.state] }}</span><p>{{ x.note }}</p></div>
+  {% endfor %}</div>
+  {% endif %}
+
+  <h3>Bashorat: qanday ssenariylar bo'lishi mumkin</h3>
+  <div class="scen">{% for s in r.scenarios %}
+    <div class="sc p-{{ s.probability }}">
+      <div class="sch"><b>{{ s.title }}</b><span class="prob">{{ {'high':'yuqori','medium':'o\'rta','low':'past'}[s.probability] }} ehtimol{% if s.horizon %} · {{ s.horizon }}{% endif %}</span></div>
+      {% if s.trigger %}<p class="trig"><i>Turtki:</i> {{ s.trigger }}</p>{% endif %}
+      <p>{{ s.outcome }}</p>
+    </div>
+  {% endfor %}</div>
+
+  <div class="gb small2">
+    {% if r.third_parties %}<div class="col"><h3>Uchinchi tomonlar</h3><ul>{% for t in r.third_parties %}<li><b>{{ name(t.iso3) }}:</b> {{ t.role }}</li>{% endfor %}</ul></div>{% endif %}
+    {% if r.watch %}<div class="col"><h3>Nimani kuzatish kerak</h3><ul>{% for w in r.watch %}<li>{{ w }}</li>{% endfor %}</ul></div>{% endif %}
+  </div>
+
+  <h3>Manbalar</h3>
+  {% if r.sources %}<ol class="cites">{% for c in r.sources %}
+    <li id="s{{ c.n }}" value="{{ c.n }}"><a href="{{ c.url }}" target="_blank" rel="noopener noreferrer">{{ c.title }}</a> <span class="muted">— {{ c.publisher }}, {{ c.published }}</span></li>
+  {% endfor %}</ol>{% endif %}
+  <p class="muted small">{{ r.data_note }} {{ r.news_count }} ta yangilik ko'rib chiqildi. "umumiy" belgisi yangilikdan emas, umumiy ma'lum faktlardan olinganini bildiradi.
+    Bashoratlar AI'ning asoslangan taxmini, aniq natija emas. {{ r.created[:16].replace('T',' ') }} UTC · {{ r.model }}</p>
+</section>
+{% elif a and b %}
+<div class="empty"><h2>{{ name(a) }} ↔ {{ name(b) }}</h2>
+  <p>Hali tahlil qilinmagan. Bazada bu ikki davlat birga tilga olingan {{ db_news|length }} ta yangi xabar bor; tahlil paytida Google News'dan ham qidiriladi.</p></div>
+{% endif %}
+
+{% if recent %}
+<div class="recent small"><b>Oxirgi tahlillar:</b>
+  {% for p in recent %}<a href="/pair?a={{ p.a }}&b={{ p.b }}&lang={{ p.lang }}">{{ name(p.a) }} ↔ {{ name(p.b) }}</a>{% if not loop.last %} · {% endif %}{% endfor %}
+</div>
+{% endif %}
+
+<script>
+const P = {{ payload }};
+const dark = matchMedia("(prefers-color-scheme: dark)").matches;
+const selA = document.getElementById("sel-a"), selB = document.getElementById("sel-b");
+const map = L.map("pmap", {minZoom: 1.5, maxZoom: 6, zoomSnap: 0.5, worldCopyJump: false, maxBounds: [[-75, -250], [85, 250]]})
+  .setView([30, 40], 2);
+map.attributionControl.setPrefix(false).addAttribution('Chegaralar: <a href="https://www.naturalearthdata.com/">Natural Earth</a>');
+let shapes, arcLine = null, nextPick = "a";
+
+function fill(iso) {
+  if (iso && iso === selA.value) return "#3b82f6";
+  if (iso && iso === selB.value) return "#f97316";
+  return dark ? "#1e293b" : "#f8fafc";
+}
+function redraw() {
+  if (shapes) shapes.setStyle(f => ({fillColor: fill(P.geo[f.properties.name])}));
+  if (arcLine) { arcLine.remove(); arcLine = null; }
+  const a = P.coords[selA.value], b = P.coords[selB.value];
+  if (a && b && selA.value !== selB.value) {
+    let [y1, x1] = a, [y2, x2] = b;
+    if (x2 - x1 > 180) x2 -= 360; else if (x1 - x2 > 180) x2 += 360;
+    const cx = (x1 + x2) / 2 - (y2 - y1) * .25, cy = (y1 + y2) / 2 + (x2 - x1) * .25, pts = [];
+    for (let i = 0; i <= 40; i++) { const t = i / 40, u = 1 - t; pts.push([u*u*y1 + 2*u*t*cy + t*t*y2, u*u*x1 + 2*u*t*cx + t*t*x2]); }
+    arcLine = L.polyline(pts, {color: "#6366f1", weight: 3, dashArray: "6 6"}).addTo(map);
+    map.fitBounds(arcLine.getBounds(), {padding: [40, 40], maxZoom: 4, animate: false});
+  }
+}
+fetch(new URL("/static/world/countries-110m.json", location.origin)).then(r => r.json()).then(topo => {
+  const geo = topojson.feature(topo, topo.objects.countries);
+  for (const f of geo.features) {
+    const g = f.geometry; if (!g) continue;
+    const polys = g.type === "Polygon" ? [g.coordinates] : g.type === "MultiPolygon" ? g.coordinates : [];
+    polys.forEach(poly => poly.forEach(ring => {
+      const lons = ring.map(p => p[0]);
+      if (Math.max(...lons) - Math.min(...lons) > 180) ring.forEach(p => { if (p[0] < 0) p[0] += 360; });
+    }));
+  }
+  shapes = L.geoJSON(geo, {
+    style: f => ({weight: .6, color: dark ? "#475569" : "#b6c2d1", fillOpacity: 1, fillColor: fill(P.geo[f.properties.name])}),
+    onEachFeature: (f, layer) => {
+      const iso = P.geo[f.properties.name];
+      if (!iso) return;
+      const tierName = {1: "qudratli", 2: "o'rta", 3: "rivojlanayotgan"}[P.tiers[iso]];
+      layer.bindTooltip(`${P.names[iso]} · ${tierName}`, {sticky: true, className: "ptip"});
+      layer.on("click", () => {
+        if (nextPick === "a") { selA.value = iso; nextPick = "b"; } else { selB.value = iso; nextPick = "a"; }
+        redraw();
+      });
+    },
+  }).addTo(map);
+  redraw();
+});
+selA.onchange = selB.onchange = redraw;
+document.getElementById("swap").onclick = () => { [selA.value, selB.value] = [selB.value, selA.value]; redraw(); };
+document.getElementById("pairform").onsubmit = e => {
+  if (selA.value === selB.value) { e.preventDefault(); alert("Ikki xil davlatni tanlang"); return; }
+  document.getElementById("go").disabled = true; document.getElementById("wait").hidden = false;
+};
+</script>
+{% endblock %}
