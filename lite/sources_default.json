@@ -156,7 +156,8 @@
     "kind": "rss",
     "value": "https://www.arabnews.com/rss.xml",
     "label": "Arab News",
-    "lang": "en"
+    "lang": "en",
+    "enabled": false
   },
   {
     "kind": "rss",
@@ -282,6 +283,12 @@
     "kind": "gnews",
     "value": "site:rferl.org OR site:ozodlik.org OR site:currenttime.tv",
     "label": "Google News: RFE/RL",
+    "lang": "en"
+  },
+  {
+    "kind": "gnews",
+    "value": "site:arabnews.com",
+    "label": "Google News: Arab News",
     "lang": "en"
   }
 ]

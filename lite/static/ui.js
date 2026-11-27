@@ -46,6 +46,39 @@
     document.querySelectorAll("details.more[open]").forEach(d => { if (!d.contains(e.target) && !nav?.classList.contains("open")) d.removeAttribute("open"); });
   });
 
+  // Hard words explained where they stand: the first time each glossary word appears on the page
+  // it gets a dotted underline; hovering or tapping it shows a plain explanation.
+  try {
+    const G = JSON.parse(document.getElementById("glossary")?.textContent || "{}");
+    const words = Object.keys(G).sort((a, b) => b.length - a.length);
+    const esc = w => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const re = new RegExp("(^|[^\\p{L}])(" + words.map(esc).join("|") + ")", "iu");
+    const seen = new Set(), skip = "A,BUTTON,INPUT,SELECT,OPTION,TEXTAREA,SCRIPT,STYLE,CODE,SUMMARY,LABEL,H1,TH,svg,CANVAS".split(",");
+    const main = document.querySelector("main");
+    const walker = main && document.createTreeWalker(main, NodeFilter.SHOW_TEXT, {acceptNode: n => {
+      for (let p = n.parentElement; p && p !== main; p = p.parentElement) {
+        if (skip.includes(p.tagName) || p.classList.contains("term") || p.closest?.("#intro")) return NodeFilter.FILTER_REJECT;
+      }
+      return re.test(n.data) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT;
+    }});
+    const nodes = [];
+    while (walker && walker.nextNode() && nodes.length < 400) nodes.push(walker.currentNode);
+    let made = 0;
+    for (const n of nodes) {
+      if (made >= 30) break;
+      const m = n.data.match(re);
+      if (!m) continue;
+      const word = m[2], k = words.find(w => w.toLowerCase() === word.toLowerCase());
+      if (!k || seen.has(k)) continue;
+      seen.add(k); made++;
+      const at = m.index + m[1].length, rest = n.splitText(at);
+      rest.splitText(word.length);
+      const span = document.createElement("span");
+      span.className = "term"; span.tabIndex = 0; span.dataset.tip = G[k]; span.textContent = rest.data;
+      rest.replaceWith(span);
+    }
+  } catch (e) { /* the page works without the glossary */ }
+
   // "PDF": the browser's own print dialog, where "Save as PDF" gives a clean file; the title
   // becomes the suggested file name.
   document.querySelectorAll("[data-pdf]").forEach(b => b.addEventListener("click", () => {

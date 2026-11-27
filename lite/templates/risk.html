@@ -23,6 +23,7 @@
     {% if detail %}
     <div class="card">
       <h3 style="margin-top:0">{{ detail.name }} {{ pill(detail) }} <button type="button" class="ghost small noprint" data-pdf="WorldScope - {{ detail.name }} xavf indeksi">📄 PDF</button></h3>
+      <p class="plain">🧭 {{ risk_text }}</p>
       <p class="small">{% if detail.rank %}{{ detail.rank }}-o'rin ({{ scored }} tadan, 1 = eng xavfli) · {% endif %}{{ detail.band }} ·
         {{ detail.coverage }}/{{ detail.of }} tarkibiy qism bo'yicha ma'lumot bor</p>
       <div class="dials">{% for c in detail.components %}

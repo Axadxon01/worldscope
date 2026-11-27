@@ -32,6 +32,7 @@ import collectors
 import db
 import debt
 import embed
+import explain
 import facts
 import framing
 import pairs
@@ -434,6 +435,8 @@ templates.env.globals.update(
     fmt_usd=lambda v: facts.human(v, "usd"),
     db_where=db.describe,
     asset=asset,
+    uzname=analyze.display_name,
+    glossary_json=Markup(json.dumps(explain.GLOSSARY, ensure_ascii=False).replace("</", "<\\/")),
 )
 
 
@@ -526,6 +529,11 @@ def feed(
         "feed.html",
         {
             "hero": hero,
+            "simple": explain.for_groups(ov["groups"][:80]),
+            "top3": [g for g in ov["groups"] if len({a["publisher"] for a in g}) >= 2][:3]
+            if not (q or kind or cat or country)
+            else [],
+            "ekey": explain.key,
             "hero_json": Markup(json.dumps(hero, ensure_ascii=False).replace("</", "<\\/")) if hero else "",
             "arts": arts[:300],
             "ov": ov,
@@ -571,7 +579,9 @@ async def make_brief(lang: str = Form("uz"), hours: str = Form("24"), focus: str
     h = _hours(hours)
     focus = focus.strip()[:200]
     if not analyze.ai_available():
-        return RedirectResponse("/brief?error=" + quote_plus("AI kaliti o'rnatilmagan"), 303)
+        return RedirectResponse(
+            "/brief?error=" + quote_plus("AI tahlili hozircha mavjud emas, keyinroq urinib ko'ring"), 303
+        )
     arts = _articles(h, q=focus if focus and len(focus.split()) == 1 else "")
     if focus and len(arts) < 5:  # a single-word focus that matched too little: let the model filter
         arts = _articles(h)
@@ -664,7 +674,9 @@ async def make_map(lang: str = Form("uz"), hours: str = Form("48"), focus: str =
     h = _hours(hours, 48)
     focus = focus.strip()[:200]
     if not analyze.ai_available():
-        return RedirectResponse("/map?error=" + quote_plus("AI kaliti o'rnatilmagan"), 303)
+        return RedirectResponse(
+            "/map?error=" + quote_plus("AI tahlili hozircha mavjud emas, keyinroq urinib ko'ring"), 303
+        )
     lang = lang if lang in analyze.LANG_NAMES else "uz"
     try:
         result = await run_ai("xarita", analyze.write_links, _articles(h), lang, focus)
@@ -854,7 +866,9 @@ async def make_pair(a: str = Form(...), b: str = Form(...), c: str = Form(""), l
     if c and (not pairs.valid(c) or c in (a, b)):
         return RedirectResponse(back + "&error=" + quote_plus("Uchinchi davlat A va B dan farq qilishi kerak"), 303)
     if not analyze.ai_available():
-        return RedirectResponse(back + "&error=" + quote_plus("AI kaliti o'rnatilmagan"), 303)
+        return RedirectResponse(
+            back + "&error=" + quote_plus("AI tahlili hozircha mavjud emas, keyinroq urinib ko'ring"), 303
+        )
     if _ai_lock.locked():  # say so before spending time on the news search
         return RedirectResponse(back + "&error=" + quote_plus(busy_message()), 303)
     try:
@@ -933,7 +947,9 @@ async def make_debt(c: str = Form(...), lang: str = Form("uz")):
     if not pairs.valid(iso):
         return RedirectResponse("/debt?error=" + quote_plus("Davlatni tanlang"), 303)
     if not analyze.ai_available():
-        return RedirectResponse(back + "&error=" + quote_plus("AI kaliti o'rnatilmagan"), 303)
+        return RedirectResponse(
+            back + "&error=" + quote_plus("AI tahlili hozircha mavjud emas, keyinroq urinib ko'ring"), 303
+        )
     if _ai_lock.locked():
         return RedirectResponse(back + "&error=" + quote_plus(busy_message()), 303)
     try:
@@ -1032,6 +1048,7 @@ async def risk_page(request: Request, c: str = "", tier: int = 0, error: str = "
         "risk.html",
         {
             "rows": shown, "detail": detail, "meta": meta, "error": error, "tier": tier, "TIERS": pairs.TIERS,
+            "risk_text": explain.risk_sentence(detail, detail["name"]) if detail else "",
             "COMPONENTS": risk.COMPONENTS, "BANDS": risk.BANDS, "scored": sum(r["score"] is not None for r in rows),
             "coords": Markup(json.dumps(COORDS)),
             "payload": Markup(json.dumps(payload, ensure_ascii=False).replace("</", "<\\/")),
@@ -1091,7 +1108,9 @@ async def make_framing(topic: str = Form(""), ids: str = Form(""), lang: str = F
     if not topic and not id_list:
         return RedirectResponse("/framing?error=" + quote_plus("Mavzu yozing yoki voqeani tanlang"), 303)
     if not analyze.ai_available():
-        return RedirectResponse("/framing?error=" + quote_plus("AI kaliti o'rnatilmagan"), 303)
+        return RedirectResponse(
+            "/framing?error=" + quote_plus("AI tahlili hozircha mavjud emas, keyinroq urinib ko'ring"), 303
+        )
     if _ai_lock.locked():
         return RedirectResponse("/framing?error=" + quote_plus(busy_message()), 303)
     items = framing.pick(await _framing_items(topic, id_list))
@@ -1381,8 +1400,24 @@ async def job_predictions() -> dict:
     return {"checked": done, "errors": errors}
 
 
+def _top_groups(hours: int = 24, minimum: int = 2) -> list[list[dict]]:
+    """The day's stories told by at least `minimum` different publishers, most-covered first."""
+    groups = analyze.overview(_articles(hours))["groups"]
+    return [g for g in groups if len({a["publisher"] for a in g}) >= minimum]
+
+
+async def job_explain() -> dict:
+    """A one-sentence plain-Uzbek explanation for each of the day's big stories."""
+    if not analyze.ai_available():
+        return {"skipped": "AI kaliti yo'q"}
+    groups = (await asyncio.to_thread(_top_groups))[: explain.PER_RUN]
+    done = await run_ai("oddiy izohlar", explain.write, groups)
+    return {"explained": len(done)}
+
+
 JOBS = {
     "refresh": job_refresh,
+    "explain": job_explain,
     "automap": job_automap,
     "digest": lambda: job_digest(False),
     "weekly": job_weekly,
@@ -1795,6 +1830,7 @@ async def country_page(request: Request, iso: str = ""):
         {
             "iso": iso, "name": analyze.display_name, "en": analyze.COUNTRY_INFO[iso]["name"], "tier": pairs.tier(iso),
             "flag": "".join(chr(0x1F1E6 + ord(ch) - 65) for ch in debt.ISO2.get(iso, "")),
+            "risk_text": explain.risk_sentence(r, analyze.display_name(iso)), "stale": explain.stale,
             "TIER_SHORT": pairs.TIER_SHORT, "wb": wb, "INDICATORS": facts.INDICATORS, "human": facts.human,
             "r": r, "debt_rows": debt_rows, "debt_wait": dt is None, "sanc": sanctions.stats().get(iso),
             "flows": tr, "trade_top": trade.top, "groups": groups, "links": links, "pairs_list": pair_list,
@@ -1830,7 +1866,9 @@ async def predictions_check(request: Request, pid: int):
     if p["due"] > collectors.now_iso():
         return RedirectResponse("/predictions?error=" + quote_plus("Muddati hali kelmagan"), 303)
     if not analyze.ai_available():
-        return RedirectResponse("/predictions?error=" + quote_plus("AI kaliti o'rnatilmagan"), 303)
+        return RedirectResponse(
+            "/predictions?error=" + quote_plus("AI tahlili hozircha mavjud emas, keyinroq urinib ko'ring"), 303
+        )
     try:
         v = await check_prediction(p)
     except analyze.AIError as e:
