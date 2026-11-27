@@ -23,7 +23,13 @@
       {% if error %}<p class="warn">{{ error }}</p>{% endif %}
 
       <div class="modes" role="group" aria-label="Ko'rinish">
-        <button type="button" data-mode="globe">🌐 Globus</button><button type="button" data-mode="trade">🚢 Savdo</button><button type="button" data-mode="flat">🗺 Tekis xarita</button>
+        <button type="button" data-mode="globe">🌐 Globus</button><button type="button" data-mode="country">🏳️ Davlat</button><button type="button" data-mode="trade">🚢 Savdo</button><button type="button" data-mode="flat">🗺 Tekis xarita</button>
+      </div>
+      <div id="relbox" hidden>
+        <select id="reliso" title="Davlat"><option value="">— Davlatni tanlang —</option>{% for iso, n in names.items()|sort(attribute=1) %}<option value="{{ iso }}">{{ n }}</option>{% endfor %}</select>
+        <p class="plain" id="relnote">👆 Globusdagi istalgan davlatni bosing yoki ro'yxatdan tanlang — uning boshqa davlatlar bilan barcha aloqalari chiziladi.</p>
+        <ol class="linklist" id="rellist"></ol>
+        <p class="muted small">Manbalar: AI xaritalari (30 kun), ikkala davlat birga yozilgan yangiliklar (7 kun) va UN Comtrade savdo statistikasi.</p>
       </div>
       <div id="tradebox" hidden>
         <div class="row">
@@ -101,7 +107,7 @@
 <script>
 const DATA = {{ payload }};
 const COLORS = {cooperation:"#16a34a", trade:"#0ea5e9", aid:"#14b8a6", diplomacy:"#6366f1",
-                pressure:"#f59e0b", conflict:"#dc2626", dependence:"#a855f7", rivalry:"#e11d48"};
+                pressure:"#f59e0b", conflict:"#dc2626", dependence:"#a855f7", rivalry:"#e11d48", news:"#94a3b8"};
 const CONF = {high:"Yuqori ishonch: bir nechta mustaqil manba", medium:"O'rta ishonch: bitta ishonchli manba",
               low:"Past ishonch: bir tomonning bayonoti yoki bitta kanal"};
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
@@ -299,28 +305,73 @@ let G = null, mode = "globe";
 try { mode = localStorage.getItem("ws-mapmode") || "globe"; } catch (e) {}
 function setMode(m) {
   mode = m;
-  if (m !== "trade") {
+  if (m !== "trade" && m !== "country") {
     try { localStorage.setItem("ws-mapmode", m); } catch (e) {}
-    if (location.search.includes("trade=")) history.replaceState(null, "", "/map");
+    if (/[?&](trade|c)=/.test(location.search)) history.replaceState(null, "", "/map");
   }
-  const onGlobe = m === "globe" || m === "trade";
+  const onGlobe = m === "globe" || m === "trade" || m === "country";
   document.getElementById("globebox").hidden = !onGlobe;
   document.getElementById("layers").hidden = m !== "globe";
   document.getElementById("tradebox").hidden = m !== "trade";
-  document.getElementById("overview").hidden = m === "trade";
+  document.getElementById("relbox").hidden = m !== "country";
+  document.getElementById("overview").hidden = m === "trade" || m === "country";
   document.querySelectorAll("[data-mode]").forEach(b => b.classList.toggle("on", b.dataset.mode === m));
-  const after = () => { if (m === "trade") loadTrade(); else if (G) { G.setLinks(DATA.links); G.clearFocus(); } };
+  const after = () => {
+    if (m === "trade") loadTrade();
+    else if (m === "country") loadRel();
+    else if (G) { G.setLinks(DATA.links); G.clearFocus(); }
+  };
   if (G) { after(); return; }
   if (onGlobe) {
     fetch(new URL("/static/world/countries-110m.json", location.origin)).then(r => r.json()).then(topo => {
       G = WSGlobe(document.getElementById("globe"), {topo, geo: DATA.geo, coords: DATA.coords, names: DATA.names,
-        links: DATA.links, co: DATA.co, colors: COLORS, panel: 380, onLink: i => show(i), onCountry: iso => G.focusCountry(iso)});
+        links: DATA.links, co: DATA.co, colors: COLORS, panel: 380, card: () => mode === "country",
+        more: i => mode === "country" ? (REL[i] && REL[i].sources && REL[i].sources[0] ? REL[i].sources[0].url : null) : null,
+        onLink: i => { if (mode === "country") markRel(i); else show(i); },
+        onCountry: iso => { if (mode === "trade") return; pickCountry(iso); }});
       G.setSigns(document.getElementById("showSigns").checked);
       if (fromHash >= 1 && fromHash <= DATA.links.length) G.focusLink(fromHash - 1);
       after();
     });
   }
 }
+// one country's ties with everyone: AI maps, shared news and trade, from /api/relations
+const relCache = {};
+let REL = [];
+function pickCountry(iso) {
+  document.getElementById("reliso").value = iso;
+  if (mode !== "country") setMode("country"); else loadRel();
+}
+const KIDW = {conflict:"⚔️ Urush", trade:"🚢 Savdo", diplomacy:"🤝 Muzokara", cooperation:"🏗️ Hamkorlik", aid:"📦 Yordam",
+              pressure:"✋ Bosim", rivalry:"♟️ Raqobat", dependence:"⛓️ Qaramlik", news:"📰 Yangiliklarda birga"};
+const SRCW = {ai: "AI tahlili", news: "yangiliklar", trade: "savdo statistikasi"};
+async function loadRel() {
+  const iso = document.getElementById("reliso").value, note = document.getElementById("relnote"), list = document.getElementById("rellist");
+  if (!iso) { REL = []; if (G) { G.setLinks([]); G.clearFocus(); } list.innerHTML = ""; return; }
+  history.replaceState(null, "", "/map?c=" + iso);
+  if (!relCache[iso]) {
+    note.textContent = "Qidirilmoqda…"; list.innerHTML = "";
+    try { relCache[iso] = await (await fetch(new URL("/api/relations/" + iso, location.origin))).json(); }
+    catch (e) { note.textContent = "Tarmoq xatosi, qayta urinib ko'ring."; return; }
+  }
+  if (document.getElementById("reliso").value !== iso || mode !== "country") return;
+  const r = relCache[iso];
+  REL = (r.links || []).map(l => ({...l, color: COLORS[l.type]}));
+  note.textContent = "🧭 " + (r.summary || "");
+  G.setLinks(REL); G.focusCountry(iso, 1);
+  list.innerHTML = REL.map((l, i) => {
+    const other = l.from === iso ? l.to : l.from;
+    return `<li data-i="${i}"><span class="dot" style="background:${COLORS[l.type] || "#d4af37"}"></span>`
+      + `<b>${esc(KIDW[l.type] || l.type)} · ${esc(DATA.names[other] || other)}</b><br><span class="small">${esc(l.bubble || l.title)}</span>`
+      + ` <span class="muted small">· ${esc(SRCW[l.src] || "")}${l.date ? ", " + esc(l.date) : ""}</span>`
+      + ` <a class="small" href="/country/${esc(other)}">${esc(DATA.names[other] || other)} aloqalari →</a></li>`;
+  }).join("");
+  list.querySelectorAll("li").forEach(li => li.onclick = e => { if (e.target.tagName !== "A") { G.focusLink(+li.dataset.i); markRel(+li.dataset.i); } });
+}
+function markRel(i) {
+  document.querySelectorAll("#rellist li").forEach(li => li.classList.toggle("on", +li.dataset.i === i));
+}
+document.getElementById("reliso").onchange = loadRel;
 // trade flows: a country's goods exports or imports by partner, as arcs whose width follows the value
 const tradeCache = {};
 let flow = "exports";
@@ -379,6 +430,8 @@ const showFlat = show, hideFlat = hideDetail;
 show = (i, instant) => { showFlat(i, instant); if (G && mode === "globe") G.focusLink(i); };
 hideDetail = () => { hideFlat(); if (G) G.clearFocus(); };
 if (DATA.trade) { document.getElementById("tradeiso").value = DATA.trade; mode = "trade"; }
+else if (DATA.c) { document.getElementById("reliso").value = DATA.c; mode = "country"; }
+else if (mode === "country") mode = "globe";
 else { try { document.getElementById("tradeiso").value = "UZB"; } catch (e) {} }
 setMode(mode);
 

@@ -504,3 +504,11 @@ tr.old td { opacity: .6; }
 :root[data-theme=light] .globe-card { background: #fff8e6f5; color: #2b2116; }
 @media (max-width: 760px) { .globe-hint { font-size: 12px; } .globe-legend button { font-size: 12px; padding: 3px 8px; } }
 .hero li .kw { font-weight: 700; font-size: 12.5px; white-space: nowrap; }
+#rellist li.on { background: var(--bg); outline: 1px solid #d4af37; }
+#rellist li a { white-space: nowrap; }
+.rellist .chip.t-conflict { background: #dc2626; color: #fff; } .rellist .chip.t-trade { background: #0ea5e9; color: #fff; }
+.rellist .chip.t-diplomacy { background: #6366f1; color: #fff; } .rellist .chip.t-cooperation { background: #16a34a; color: #fff; }
+.rellist .chip.t-aid { background: #14b8a6; color: #fff; } .rellist .chip.t-pressure { background: #f59e0b; color: #fff; }
+.rellist .chip.t-rivalry { background: #e11d48; color: #fff; } .rellist .chip.t-dependence { background: #a855f7; color: #fff; }
+.rellist li { margin-bottom: 6px; }
+.rellist .chip.t-news { background: #64748b; color: #fff; }

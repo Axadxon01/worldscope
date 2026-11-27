@@ -28,12 +28,13 @@
   <div>
     <h1>Dunyo hozir</h1>
     {% if hero.links %}
-      <p class="muted small">Davlatlar o'rtasida hozir nima bo'layotgani. Globusdagi rasmchani bosing — oddiy tilda tushuntiradi.</p>
+      <p class="muted small">Davlatlar o'rtasida hozir nima bo'layotgani. Globusdagi rasmchani bosing — oddiy tilda tushuntiradi.
+        Istalgan davlatni bosing — uning boshqa davlatlar bilan barcha aloqalari ochiladi.</p>
       {% set W = {"conflict": "⚔️ Urush", "trade": "🚢 Savdo", "diplomacy": "🤝 Muzokara", "cooperation": "🏗️ Hamkorlik", "aid": "📦 Yordam", "pressure": "✋ Bosim", "rivalry": "♟️ Raqobat", "dependence": "⛓️ Qaramlik"} %}
       <ul>{% for l in hero.links[:7] %}<li data-i="{{ loop.index0 }}"><i class="t-{{ l.type }}"></i><span class="kw">{{ W.get(l.type, l.type) }}</span> <b>{{ hero.names.get(l.from, l.from) }} → {{ hero.names.get(l.to, l.to) }}</b> — {{ l.bubble or l.title }}</li>{% endfor %}</ul>
     {% else %}
       <p class="muted small">Bugungi xarita hali tayyorlanmoqda. Hozircha globusda yangiliklarda tez-tez birga tilga olingan
-        davlatlar kulrang chiziq bilan bog'langan.</p>
+        davlatlar kulrang chiziq bilan bog'langan. Istalgan davlatni bosing — uning aloqalari ochiladi.</p>
     {% endif %}
     <p><a href="/map">To'liq globus →</a></p>
   </div>
@@ -47,7 +48,7 @@
   fetch(new URL("/static/world/countries-110m.json", location.origin)).then(r => r.json()).then(topo => {
     WSGlobe(document.getElementById("heroglobe"), {topo, geo: H.geo, coords: H.coords, names: H.names, links: H.links, co: H.co,
       colors: C, compact: true, start: [41, 64], card: true, more: i => "/map#" + (i + 1),
-      onCountry: iso => { location.href = "/country/" + iso; }});
+      onCountry: iso => { location.href = "/map?c=" + iso; }});
   });
 })();
 </script>

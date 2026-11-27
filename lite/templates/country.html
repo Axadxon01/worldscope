@@ -90,9 +90,13 @@
   </section>
 </div>
 
-{% if links %}
-<h3>🌐 AI xaritasidagi aloqalari</h3>
-<ul class="plain">{% for l in links %}<li><span class="chip">{{ TYPES.get(l.type, l.type) }}</span> <b>{{ name(l.from) }} → {{ name(l.to) }}</b> — {{ l.bubble or l.title }}</li>{% endfor %}</ul>
+<h3 id="aloqalar">🌐 Boshqa davlatlar bilan aloqalari</h3>
+<p class="plain">🧭 {{ rel_text }}</p>
+{% if rel %}
+{% set SRC = {"ai": "AI tahlili", "news": "yangiliklar", "trade": "savdo statistikasi"} %}
+<ul class="plain rellist">{% for l in rel %}<li><span class="chip t-{{ l.type }}">{{ TYPES.get(l.type, "📰 Yangiliklarda birga") }}</span> <b>{{ name(l.from) }} → {{ name(l.to) }}</b> — {{ l.bubble or l.title }}
+  <span class="muted small">· {{ SRC.get(l.src, l.src) }}{% if l.date %}, {{ l.date }}{% endif %}</span></li>{% endfor %}</ul>
+<p class="small"><a href="/map?c={{ iso }}">Globusda katta qilib ko'rish →</a></p>
 {% endif %}
 
 {% if pairs_list %}
@@ -122,12 +126,12 @@
 <script>
 (function () {
   const D = {{ payload }};
-  const C = {cooperation:"#16a34a", trade:"#0ea5e9", aid:"#14b8a6", diplomacy:"#6366f1", pressure:"#f59e0b", conflict:"#dc2626", dependence:"#a855f7", rivalry:"#e11d48"};
+  const C = {cooperation:"#16a34a", trade:"#0ea5e9", aid:"#14b8a6", diplomacy:"#6366f1", pressure:"#f59e0b", conflict:"#dc2626", dependence:"#a855f7", rivalry:"#e11d48", news:"#94a3b8"};
   fetch(new URL("/static/world/countries-110m.json", location.origin)).then(r => r.json()).then(topo => {
     const g = WSGlobe(document.getElementById("cglobe"), {topo, geo: D.geo, coords: D.coords, names: D.names, links: D.links, colors: C,
-      compact: true, start: D.coords[D.focus], card: true, more: () => "/map",
+      compact: true, start: D.coords[D.focus], card: true, more: () => "/map?c=" + D.focus,
       onCountry: iso => { location.href = "/country/" + iso; }});
-    g.focusCountry(D.focus);
+    g.focusCountry(D.focus, D.links.length ? 1 : 1.5);
   });
 })();
 </script>

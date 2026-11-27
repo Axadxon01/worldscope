@@ -14,8 +14,10 @@
   const WORDS = {
     conflict: ["⚔️", "Urush"], trade: ["🚢", "Savdo"], diplomacy: ["🤝", "Muzokara"], cooperation: ["🏗️", "Hamkorlik"],
     aid: ["📦", "Yordam"], pressure: ["✋", "Bosim"], rivalry: ["♟️", "Raqobat"], dependence: ["⛓️", "Qaramlik"],
+    news: ["📰", "Yangilikda"],
   };
   const EXPLAIN = {
+    news: "Bu ikki davlat haqida gazetalar birga yozmoqda. Nima haqida ekanini ro'yxatdan o'qing.",
     conflict: "Bu ikki tomon o'rtasida urush yoki qattiq janjal bor.",
     trade: "Bu davlatlar bir-biriga mol sotadi va sotib oladi.",
     diplomacy: "Bu davlatlar rahbarlari uchrashib, gaplashib kelishmoqda.",
@@ -243,10 +245,10 @@
         const placed = [];                                     // keep pictures from piling on each other
         order.forEach((k, n) => {
           const p = proj(k.mid), draw = k.l.sign === false ? null : SIGNS[k.l.type];
-          if (!draw) return;
+          if (!draw && k.l.type !== "news") return;
           const conf = k.l.confidence === "high" ? 1 : k.l.confidence === "low" ? .7 : .85;
           const s = (opt.compact ? 1.05 : 1.15) * conf * Math.min(1.6, Math.max(.8, zoom));
-          const crowded = k.i !== focused && placed.some(q => Math.abs(q[0] - p[0]) < 84 * s && Math.abs(q[1] - p[1]) < 56 * s);
+          const crowded = !draw || k.i !== focused && placed.some(q => Math.abs(q[0] - p[0]) < 84 * s && Math.abs(q[1] - p[1]) < 56 * s);
           if (crowded) {                                       // too close to a bigger picture: a small dot instead
             const w0 = WORDS[k.l.type];
             ctx.globalAlpha = focused >= 0 && focused !== k.i ? .35 : .95;
@@ -286,7 +288,7 @@
       }
       // names of the countries in play
       ctx.font = "600 11px Inter, sans-serif"; ctx.textAlign = "center";
-      const named = new Set([...(opt.compact ? [] : involved), ...(hover ? [hover] : []), ...(focusIso ? [focusIso] : [])]);
+      const named = new Set([...(opt.compact && !focusIso ? [] : involved), ...(hover ? [hover] : []), ...(focusIso ? [focusIso] : [])]);
       for (const iso of named) {
         const c = opt.coords[iso]; if (!c) continue;
         const ll = [c[1], c[0]]; if (!visible(ll)) continue;
@@ -364,7 +366,9 @@
       const p = pt(e), sign = hitSigns.find(h => Math.hypot(h.x - p[0], h.y - p[1]) < h.r);
       hideHint();
       if (sign) {
-        if (opt.card) showCard(sign.i); else if (opt.onLink) opt.onLink(sign.i);
+        const useCard = typeof opt.card === "function" ? opt.card() : opt.card;
+        if (useCard) showCard(sign.i);
+        if (opt.onLink && (!useCard || typeof opt.card === "function")) opt.onLink(sign.i);
         return;
       }
       if (hover && opt.onCountry) opt.onCountry(hover);
@@ -403,7 +407,7 @@
     }
     // a hint for first-time visitors, gone after six seconds or the first touch
     const hint = document.createElement("div"); hint.className = "globe-hint";
-    hint.textContent = links.length ? "👆 Aylantiring va rasmchani bosing" : "👆 Globusni barmoq bilan aylantiring";
+    hint.textContent = links.length ? "👆 Aylantiring, rasmcha yoki davlatni bosing" : "👆 Globusni barmoq bilan aylantiring";
     box.appendChild(hint);
     function hideHint() { hint.classList.add("gone"); }
     setTimeout(hideHint, 6000);
@@ -420,7 +424,7 @@
         <div class="ttl">${esc(nm(l.from))} → ${esc(nm(l.to))}</div>
         <div>${esc(l.bubble || l.title || "")}</div>
         <div style="opacity:.8;margin-top:6px">💡 ${esc(EXPLAIN[l.type] || "")}</div>
-        ${opt.more ? `<div style="margin-top:8px"><a href="${opt.more(i)}">Batafsil →</a></div>` : ""}`;
+        ${opt.more && opt.more(i) ? `<div style="margin-top:8px"><a href="${esc(opt.more(i))}"${/^https?:/.test(opt.more(i)) ? ' target="_blank" rel="noopener"' : ""}>Batafsil →</a></div>` : ""}`;
       card.hidden = false;
       card.querySelector("button").onclick = () => { card.hidden = true; focused = -1; idleSince = performance.now(); };
     }
@@ -433,7 +437,7 @@
     return {
       focusLink(i) { const k = links.find(x => x.i === i); focused = i; if (k) turnTo(k.mid, Math.max(zoom, 1.4)); },
       clearFocus() { focused = -1; focusIso = null; idleSince = performance.now(); },
-      focusCountry(iso) { focusIso = iso; const f = byIso[iso]; if (f) turnTo(d3.geoCentroid(f), Math.max(zoom, 1.5)); },
+      focusCountry(iso, z = 1.5) { focusIso = iso; const f = byIso[iso]; if (f) turnTo(d3.geoCentroid(f), z); },
       setLayer(v) { layer = v; },
       setLinks(list) { build(list); focused = -1; solo = null; card.hidden = true; paintLegend(); },
       setSigns(v) { signs = v; },
