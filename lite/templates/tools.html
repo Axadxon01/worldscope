@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block title %}Tahlil asboblari · WorldScope Lite{% endblock %}
+{% block body %}
+<header class="countryhead"><h1>Tahlil asboblari</h1></header>
+<p class="lede">Chuqurroq bilmoqchi bo'lsangiz — har bir asbob bitta savolga javob beradi.</p>
+<div class="toolgrid">
+  {% for href, icon, name, what, _adm in items %}
+  <a class="toolcard" href="{{ href }}"><span class="ti" aria-hidden="true">{{ icon }}</span><b>{{ name }}</b><small>{{ what }}</small></a>
+  {% endfor %}
+</div>
+{% endblock %}

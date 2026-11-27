@@ -20,7 +20,7 @@ import collectors
 NOW = datetime.now(UTC)
 # modules that hold a database handle or settings read at import: reloaded for every test
 MODULES = ("db", "facts", "debt", "telegram_bot", "sanctions", "risk", "framing", "accounts", "watch",
-           "predictions", "trade", "scheduler", "embed", "explain", "relations", "app")  # fmt: skip
+           "predictions", "trade", "scheduler", "embed", "explain", "relations", "personal", "app")  # fmt: skip
 
 
 def use_test_db(monkeypatch, tmp_path, name):
@@ -306,6 +306,14 @@ def test_admin_adds_people_and_only_admins_manage(tmp_path, monkeypatch):
         c.post("/login", data={"username": "ali", "password": temp})
         assert c.get("/admin").status_code == 403
         assert c.get("/watch").status_code == 200
+        c.post("/logout")
+        assert "Yangilash" not in c.get("/login").text and "Ma'lumotlar:" not in c.get("/login").text
+        c.post("/login", data={"username": "ali", "password": temp})
+        home = c.get("/").text  # people see the news, not the machinery
+        assert "Yangilash" not in home and "AI: " not in home and "Ma'lumotlar:" not in home
+        assert 'href="/sources"' not in c.get("/tools").text
+        c.post("/prefs", data={"countries": ["KAZ", "XXX"], "topics": ["energy"]})
+        assert [i["value"] for i in app_mod.watch.items(acc.list_users()[1]["id"])] == ["KAZ"]  # chosen = followed
         # changing the password ends other sessions but keeps this one
         r = c.post("/account/password", data={"old": temp, "new": "alis-new-pass", "new2": "alis-new-pass"})
         assert "Parol o" in r.text and acc.authenticate("ali", "alis-new-pass")
@@ -1826,10 +1834,9 @@ def test_plain_words_for_stories_and_risk(client, monkeypatch):
     E = app_mod.explain
     groups = app_mod._top_groups(48, 1)
     assert groups
-    fb = E.for_groups(groups[:3])
-    assert all(v["simple"].endswith(".") and not v["ai"] for v in fb.values())
+    assert E.for_groups(groups[:3]) == {}  # no AI line yet: nothing is shown rather than a guess
     monkeypatch.setattr(app_mod.analyze, "ai_available", lambda: True)
-    reply = json.dumps({"items": [{"n": 1, "simple": "Ikki davlat gaplashdi.", "why": "Narxlar tushishi mumkin.", "emoji": "🤝"},
+    reply = json.dumps({"items": [{"n": 1, "title": "Ikki davlat gaz kelishuvini imzoladi", "simple": "Ikki davlat gaplashdi.", "why": "Narxlar tushishi mumkin.", "emoji": "🤝"},
                                   {"n": 99, "simple": "noto'g'ri raqam"}]})  # fmt: skip
     monkeypatch.setattr(app_mod.analyze, "complete", lambda *a, **k: (reply, "m"))
     import asyncio
@@ -1839,7 +1846,8 @@ def test_plain_words_for_stories_and_risk(client, monkeypatch):
     assert E.for_groups(groups[:1])[E.key(groups[0])]["simple"] == "Ikki davlat gaplashdi."
     app_mod._FEED_CACHE.clear()
     page = c.get("/").text
-    assert "Oddiy qilib" in page and "Ikki davlat gaplashdi." in page and 'id="glossary"' in page
+    assert "Ikki davlat gaplashdi." in page and 'id="glossary"' in page
+    assert "Ikki davlat gaz kelishuvini imzoladi" in page and "Bizga ta'siri" in page and "Asl sarlavha" in page
     r = {"score": 39.4, "band": "o'rtachadan past", "components": [
         {"label": "Siyosiy barqarorlik", "value": 48}, {"label": "Iqtisodiy holat", "value": 17}]}  # fmt: skip
     s = E.risk_sentence(r, "O'zbekiston")
@@ -1898,3 +1906,59 @@ def test_every_country_shows_its_ties(client, monkeypatch):
     assert c.get("/api/relations/XXX").status_code == 404
     assert "Boshqa davlatlar bilan aloqalari" in c.get("/country/UZB").text
     assert 'id="reliso"' in c.get("/map?c=UZB").text
+
+
+def test_home_is_personal_and_remembers_the_last_visit(client):
+    c, app_mod = client
+    P = app_mod.personal
+    assert P.parse_prefs("uzb.RUS.XXX|energy.nope") == (["UZB", "RUS"], ["energy"])
+    now = datetime(2026, 11, 27, 12, tzinfo=UTC)
+    assert P.visit(None, None, now) == (None, "")
+    within = P.visit((now - timedelta(minutes=5)).isoformat(), "2026-11-20T09:00:00+00:00", now)
+    assert within[0].day == 20  # a reload keeps the start of the previous visit
+    gap = P.visit((now - timedelta(hours=5)).isoformat(), "2026-11-20T09:00:00+00:00", now)
+    assert gap[0] == now - timedelta(hours=5)
+
+    first = c.get("/")
+    assert first.status_code == 200 and "Bugun dunyoda nima bo'ldi?" in first.text
+    assert 'id="prefs"' in first.text and "Sizni qaysi davlatlar" in first.text
+    assert P.LAST_COOKIE in first.cookies and "Qaytganingiz bilan" not in first.text
+    r = c.post("/prefs", data={"countries": ["UZB", "CHN"], "topics": ["energy"]}, follow_redirects=False)
+    assert r.status_code == 303 and r.cookies[P.PREFS_COOKIE].strip('"') == "UZB.CHN|energy"
+    c.cookies.clear()
+    c.cookies.set(P.PREFS_COOKIE, "UZB.CHN|energy")
+    c.cookies.set(P.LAST_COOKIE, (datetime.now(UTC) - timedelta(days=3)).isoformat())
+    page = c.get("/").text
+    assert "Qaytganingiz bilan" in page and "3 kun oldin" in page
+    assert "Siz tanlaganlar" in page and "Xitoy" in page
+    assert c.get("/?country=UZB", follow_redirects=False).headers["location"] == "/news?country=UZB"
+    news = c.get("/news?view=stories").text
+    assert "Barcha yangiliklar" in news and "Google News" not in news
+
+
+def test_quiz_tools_and_votes(client):
+    c, app_mod = client
+    links = [{"from": "RUS", "to": "UKR", "type": "conflict", "bubble": "Urush davom etmoqda"},
+             {"from": "RUS", "to": "CHN", "type": "trade"}, {"from": "UZB", "to": "KAZ", "type": "cooperation"},
+             {"from": "USA", "to": "IND", "type": "diplomacy"}]  # fmt: skip
+    qs = app_mod.personal.quiz(links, "2026-W48")
+    assert len(qs) == 4 and qs == app_mod.personal.quiz(links, "2026-W48")  # the same week, the same quiz
+    q = qs[0]
+    assert q["answer"] == "UKR" and len(q["options"]) == 4 and "Rossiya" in q["q"]
+    assert "CHN" not in [o["iso"] for o in q["options"]]  # another true partner is never a wrong option
+    assert "tayyor emas" in c.get("/quiz").text
+    with app_mod.db.tx() as cx:
+        cx.execute("INSERT INTO maps (created, lang, hours, focus, model, data) VALUES (?,?,?,?,?,?)",
+                   (datetime.now(UTC).isoformat(), "uz", 24, "", "m", json.dumps({"summary": "", "links": links})))  # fmt: skip
+    assert c.get("/quiz").text.count('class="opts"') == 4
+    tools = c.get("/tools").text
+    assert "Ikki davlat" in tools and "Haftalik test" in tools
+    now = datetime.now(UTC)
+    with app_mod.db.tx() as cx:
+        cx.execute("INSERT INTO predictions (ref, a, b, title, chance, made, due) VALUES (?,?,?,?,?,?,?)",
+                   ("r", "UZB", "KAZ", "Suv kelishuvi", 60, now.isoformat(), (now + timedelta(days=30)).isoformat()))  # fmt: skip
+    pid = app_mod.db.one("SELECT id FROM predictions")["id"]
+    c.post(f"/predictions/{pid}/vote", data={"vote": "yes"})
+    c.post(f"/predictions/{pid}/vote", data={"vote": "no"})  # changing one's mind replaces the vote
+    page = c.get("/predictions").text
+    assert "0% &#34;bo&#39;ladi&#34; (1 ovoz)" in page or '0% "bo\'ladi" (1 ovoz)' in page

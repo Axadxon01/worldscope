@@ -7,6 +7,7 @@
 </header>
 {% if msg %}<p class="ok">{{ msg }}</p>{% endif %}
 {% if error %}<p class="warn">{{ error }}</p>{% endif %}
+<p class="lede">AI kelajak haqida taxmin qiladi — siz ham ovoz bering. Muddat kelganda kim to'g'ri chiqqanini ko'ramiz.</p>
 <p class="muted small">"Ikki davlat" tahlilidagi har bir ssenariy shu yerda ehtimoli va muddati bilan yozib qo'yiladi. Muddat o'tgach, AI o'sha davrdagi
   yangiliklar bilan solishtirib, ssenariy amalga oshgan-oshmaganini manba bilan aniqlaydi (kuniga {{ per_day }} tagacha). Shunda AI bashoratlariga
   qanchalik ishonish mumkinligi raqamda ko'rinadi.</p>
@@ -41,7 +42,7 @@
 <table class="facts preds">
   <thead><tr><th>Juftlik</th><th>Ssenariy</th><th>Ehtimol</th><th>Muddat</th><th>Natija</th></tr></thead>
   <tbody>{% for p in rows %}
-  <tr class="st-{{ p.status }}">
+  <tr class="st-{{ p.status }}" id="p{{ p.id }}">
     <td class="small"><a href="/pair?a={{ p.a }}&b={{ p.b }}">{{ name(p.a) }} ↔ {{ name(p.b) }}</a><br><span class="muted">{{ p.made[:10] }}</span></td>
     <td><b>{{ p.title }}</b>{% if p.detail %}<div class="small muted">{{ p.detail[:260] }}{% if p.detail|length > 260 %}…{% endif %}</div>{% endif %}</td>
     <td>{{ p.chance }}%</td>
@@ -50,7 +51,16 @@
       <span class="verdict v-{{ p.status }}">{{ STATUS[p.status] }}</span>
       {% if p.status != 'open' and p.verdict %}<div>{{ p.verdict }}</div>{% endif %}
       {% for e in p.evidence %}<div><a href="{{ e.url }}" target="_blank" rel="noopener noreferrer">[{{ e.n }}] {{ e.title[:80] }}</a> <span class="muted">{{ e.publisher }}</span></div>{% endfor %}
-      {% if p.status == 'open' and p.due <= now and ai %}<form method="post" action="/predictions/{{ p.id }}/check" class="noprint"><button class="ghost small">Hozir tekshirish</button></form>{% endif %}
+      {% set v = votes.get(p.id, {"yes": 0, "no": 0, "mine": none}) %}{% set nv = v.yes + v.no %}
+      {% if p.status == 'open' %}
+      <form method="post" action="/predictions/{{ p.id }}/vote" class="vote noprint">
+        <span>Siz qanday deb o'ylaysiz?</span>
+        <button name="vote" value="yes" class="ghost small {{ 'picked' if v.mine == 'yes' }}">👍 Bo'ladi</button>
+        <button name="vote" value="no" class="ghost small {{ 'picked' if v.mine == 'no' }}">👎 Bo'lmaydi</button>
+      </form>
+      {% endif %}
+      {% if nv %}<div class="muted">Foydalanuvchilar: {{ (100 * v.yes / nv)|round|int }}% "bo'ladi" ({{ nv }} ovoz){% if p.status != 'open' and v.mine %} · siz: {{ "bo'ladi" if v.mine == 'yes' else "bo'lmaydi" }}{% endif %}</div>{% endif %}
+      {% if p.status == 'open' and p.due <= now and ai and is_admin(request) %}<form method="post" action="/predictions/{{ p.id }}/check" class="noprint"><button class="ghost small">Hozir tekshirish</button></form>{% endif %}
     </td>
   </tr>{% endfor %}</tbody>
 </table>
