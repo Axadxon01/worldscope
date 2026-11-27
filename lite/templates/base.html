@@ -1,29 +1,43 @@
 <!doctype html>
-<html lang="uz">
+<html lang="{{ ui_lang() }}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="robots" content="noindex">
+{% if request.url.path.startswith(("/login", "/register", "/account", "/admin", "/watch", "/sources")) %}<meta name="robots" content="noindex">{% endif %}
 <meta name="theme-color" content="#0b1426">
-<title>{% block title %}WorldScope Lite{% endblock %}</title>
+<title>{% block title %}{{ _("WorldScope — dunyo yangiliklari oddiy tilda") }}{% endblock %}</title>
+<meta name="description" content="{% block desc %}{{ _("Dunyo yangiliklari oddiy o'zbek tilida: bugun nima bo'ldi, bizga qanday ta'sir qiladi, davlatlar o'rtasidagi aloqalar globusda, sanksiyalar ro'yxati.") }}{% endblock %}">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="WorldScope">
+<meta property="og:title" content="{{ self.title() }}">
+<meta property="og:description" content="{{ self.desc() }}">
+<meta property="og:image" content="{{ public_url }}/static/og.png">
+<meta property="og:image:width" content="1200"><meta property="og:image:height" content="630">
+<meta property="og:url" content="{{ public_url }}{{ request.url.path }}">
+<meta property="og:locale" content="{{ 'ru_RU' if ui_lang() == 'ru' else 'uz_UZ' }}">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" type="image/png" href="/static/icon-192.png">
+<link rel="apple-touch-icon" href="/static/icon-192.png">
 <script>try { if (localStorage.getItem("ws-theme") === "light") document.documentElement.dataset.theme = "light"; } catch (e) {}</script>
 <link rel="preload" href="/static/fonts/cormorant-garamond-latin-700-normal.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="{{ asset('style.css') }}">
 {% block head %}{% endblock %}
 </head>
 <body>
+<a class="skip" href="#main">{{ _("Asosiy qismga o'tish") }}</a>
 {% set user = request.state.user if request.state and request.state.user is defined else none %}
 {% set admin = is_admin(request) %}
 {% set path = request.url.path %}
 {% if path == "/" %}{% include "_intro.html" %}
 <script src="{{ asset('intro.js') }}"></script>{% endif %}
-{% set tool_paths = ["/tools", "/news", "/pair", "/risk", "/sanctions", "/debt", "/framing", "/predictions", "/brief", "/quiz", "/sources"] %}
-{% set main_items = [("/", "📰", "Bugun"), ("/map", "🌐", "Globus"), ("/country", "🏳️", "Davlatlar"), ("/tools", "🧰", "Tahlil"), ("/watch", "📌", "Mening")] %}
+{% set tool_paths = ["/tools", "/news", "/pair", "/risk", "/debt", "/framing", "/predictions", "/brief", "/quiz", "/sources"] %}
+{% set main_items = [("/", "📰", "Bugun"), ("/map", "🌐", "Globus"), ("/country", "🏳️", "Davlatlar"), ("/sanctions", "📁", "Sanksiyalar"), ("/tools", "🧰", "Tahlil"), ("/watch", "📌", "Mening")] %}
 {% macro is_on(href) %}{{ 'on' if path == href or (href != '/' and path.startswith(href + '/')) or (href == '/tools' and path in tool_paths) }}{% endmacro %}
 <header class="top">
   <a class="brand" href="/"><span class="crest" aria-hidden="true">⚜</span>World<b>Scope</b></a>
-  <nav id="mainnav" aria-label="Bo'limlar">
-    {% for href, icon, label in main_items %}<a href="{{ href }}" class="{{ is_on(href) }}"><span class="ni" aria-hidden="true">{{ icon }}</span>{{ label }}</a>{% endfor %}
+  <nav id="mainnav" aria-label="{{ _("Bo'limlar") }}">
+    {% for href, icon, label in main_items %}<a href="{{ href }}" class="{{ is_on(href) }}"><span class="ni" aria-hidden="true">{{ icon }}</span>{{ _(label) }}</a>{% endfor %}
   </nav>
   <form method="post" action="/refresh" class="refresh">
     {% if admin %}
@@ -36,26 +50,29 @@
       {% if state.running %}Depeshalar kelmoqda…{% elif state.last_run %}Yangilandi: {{ state.last_run|ago }}{% else %}Hali yangilanmagan{% endif %}
     </span>
     <button class="telegraph {{ 'tapping' if state.running }}" {{ 'disabled' if state.running }} title="Yangi xabarlarni olish (admin)"><span class="key" aria-hidden="true">📡</span><span class="hide-s"> Yangilash</span></button>
-    {% elif state.last_run %}<span class="muted hide-s" title="Yangiliklar har 25 daqiqada avtomatik yig'iladi">🕒 {{ state.last_run|ago }} yangilandi</span>{% endif %}
-    <button type="button" class="ghost themebtn" id="themebtn" title="Tun / pergament rejimi" aria-label="Rejimni almashtirish">☾</button>
+    {% elif state.last_run %}<span class="muted hide-s" title="{{ _("Yangiliklar har 25 daqiqada avtomatik yig'iladi") }}">🕒 {{ _("yangilandi") }} {{ state.last_run|ago }}</span>{% endif %}
+    <button type="button" class="ghost themebtn" id="themebtn" title="{{ _("Tun / pergament rejimi") }}" aria-label="{{ _("Rejimni almashtirish") }}">☾</button>
+    <a class="ghost langbtn" href="/lang/{{ 'uz' if ui_lang() == 'ru' else 'ru' }}?next={{ (path ~ ('?' ~ request.url.query if request.url.query else ''))|urlencode }}" title="{{ _("Til") }}" lang="{{ 'uz' if ui_lang() == 'ru' else 'ru' }}">{{ "UZ" if ui_lang() == "ru" else "RU" }}</a>
     {% if user %}
     <details class="more usermenu"><summary title="Akkaunt">👤 <span class="hide-s">{{ user.username }}</span> ▾</summary>
       <div class="menu right">
-        <a href="/account">Profil va Telegram</a>
-        {% if user.role == 'admin' %}<a href="/admin">Boshqaruv</a>{% endif %}
-        <button formaction="/logout" class="linkish">Chiqish</button>
+        <a href="/account">{{ _("Profil va Telegram") }}</a>
+        {% if user.role == 'admin' %}<a href="/admin">{{ _("Boshqaruv") }}</a>{% endif %}
+        <button formaction="/logout" class="linkish">{{ _("Chiqish") }}</button>
       </div>
     </details>
-    {% elif request.state.mode == 'open' %}<a class="ghost small hide-s" href="/admin" title="Boshqaruv">⚙</a>{% endif %}
+    {% elif request.state.mode == 'open' %}<a class="ghost small hide-s" href="/admin" title="Boshqaruv">⚙</a>
+    {% elif path not in ("/login", "/register") %}<a class="btnlink ghostlink signin" href="/login?next={{ path|urlencode }}">{{ _("Kirish") }}</a>{% endif %}
   </form>
 </header>
-<main class="{% block mainclass %}{% endblock %}">{% block body %}{% endblock %}</main>
-<nav class="bottomnav" aria-label="Asosiy bo'limlar">
+<main id="main" tabindex="-1" class="{% block mainclass %}{% endblock %}">{% if ui_lang() == "ru" and (path.startswith(("/pair", "/risk", "/debt", "/framing", "/predictions", "/brief", "/sanctions", "/country", "/map", "/watch", "/account", "/admin", "/sources"))) %}<p class="langnote">{{ _("Bu bo'lim hozircha faqat o'zbek tilida.") }}</p>{% endif %}{% block body %}{% endblock %}</main>
+<nav class="bottomnav" aria-label="{{ _("Asosiy bo'limlar") }}">
   {% for href, icon, label in main_items %}
-  <a href="{{ href }}" class="{{ is_on(href) }}"><span>{{ icon }}</span>{{ label }}</a>{% endfor %}
+  <a href="{{ href }}" class="{{ is_on(href) }}"><span>{{ icon }}</span>{{ _(label) }}</a>{% endfor %}
 </nav>
 <div id="aiwait" hidden><div class="hg" aria-hidden="true">⏳</div><p>AI o'ylayapti… <span id="secs">0</span> s</p><p class="muted small">Odatda 20–60 soniya</p></div>
-<footer>WorldScope yangiliklarni o'zi yozmaydi: sarlavha, qisqa matn va havola saqlanadi, to'liq matn manbaning o'zida.{% if admin %} · Ma'lumotlar: {{ db_where() }}{% endif %}</footer>
+<footer>{{ _("WorldScope yangiliklarni o'zi yozmaydi: sarlavha, qisqa matn va havola saqlanadi, to'liq matn manbaning o'zida.") }}
+  · <a href="/feedback?page={{ path|urlencode }}">{{ _("Xato topdingizmi?") }}</a>{% if admin %} · Ma'lumotlar: {{ db_where() }}{% endif %}</footer>
 <script id="glossary" type="application/json">{{ glossary_json }}</script>
 <script src="{{ asset('ui.js') }}"></script>
 </body>

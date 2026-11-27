@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import gzip
 import json
 import logging
 import os
@@ -36,9 +37,11 @@ import embed
 import explain
 import facts
 import framing
+import i18n
 import pairs
 import personal
 import predictions
+import push
 import relations
 import risk
 import sanctions
@@ -299,7 +302,8 @@ def _same_site(request: Request) -> bool:
     return False
 
 
-OPEN_PATHS = ("/login", "/static/", "/favicon.ico")
+OPEN_PATHS = ("/login", "/register", "/lang/", "/static/", "/favicon.ico", "/robots.txt", "/sitemap.xml",
+              "/manifest.webmanifest", "/offline", "/sw.js")  # fmt: skip
 ASSET_VERSION = (os.environ.get("RENDER_GIT_COMMIT") or str(int(time.time())))[:10]
 
 
@@ -310,23 +314,68 @@ def _user_for(request: Request) -> tuple[str, dict | None]:
     return mode, accounts.session_user(request.cookies.get(accounts.COOKIE))
 
 
+# Reading is open to everyone; an account switches on the personal parts, and a few parts are the admin's.
+PERSONAL_PATHS = ("/watch", "/account", "/push/test")
+ADMIN_PATHS = ("/admin", "/sources", "/refresh", "/sanctions/refresh")
+AI_POSTS = ("/pair", "/brief", "/debt", "/framing")  # each one spends the shared daily AI budget
+OPEN_POSTS = ("/prefs", "/login", "/logout", "/register", "/feedback", "/push/subscribe", "/push/unsubscribe")
+
+
+def _needs(path: str, method: str) -> str:
+    """'' (anyone), 'user' (an account) or 'admin' for this request."""
+    if path.startswith(ADMIN_PATHS) or (
+        method == "POST" and (path == "/map" or re.fullmatch(r"/predictions/\d+/check", path))
+    ):
+        return "admin"
+    if path.startswith(PERSONAL_PATHS):
+        return "user"
+    if method not in SAFE_METHODS:
+        if path.startswith(OPEN_POSTS) or re.fullmatch(r"/predictions/\d+/vote", path):
+            return ""
+        return "user"  # AI_POSTS and anything new: an account is the brake on the shared budget
+    return ""
+
+
 @app.middleware("http")
 async def access_gate(request: Request, call_next):
     path = request.url.path
     machine = path.startswith(MACHINE_PATHS)
     request.state.user = None
-    request.state.mode = "public"  # login page, static files, machines: nobody is known, nobody is admin
+    request.state.mode = "public"  # static files and machines: nobody is known, nobody is admin
+    i18n.set_lang(request.cookies.get(i18n.COOKIE))
     if not machine and not path.startswith(OPEN_PATHS):
         mode, user = await asyncio.to_thread(_user_for, request)
         request.state.mode, request.state.user = mode, user
-        if mode == "setup" or (mode == "accounts" and not user):
-            if path.startswith("/api/"):
-                return JSONResponse({"error": "kirish kerak"}, status_code=401)
-            nxt = path + (f"?{request.url.query}" if request.url.query else "")
-            return RedirectResponse("/login" + (f"?next={quote_plus(nxt)}" if nxt not in ("/", "") else ""), 303)
+        need = _needs(path, request.method)
+        if mode in ("setup", "accounts") and need:
+            allowed = bool(user) and (need == "user" or user["role"] == "admin")
+            if not allowed:
+                if path.startswith("/api/") or (request.method not in SAFE_METHODS and user):
+                    return JSONResponse({"error": "ruxsat yo'q"}, status_code=403 if user else 401)
+                if user:  # signed in, but not an admin
+                    return Response("Bu sahifa faqat administrator uchun.", 403)
+                back = request.headers.get("referer", "") if request.method not in SAFE_METHODS else ""
+                back_path = urlsplit(back).path if back else ""
+                nxt = back_path or path + (f"?{request.url.query}" if request.url.query else "")
+                return RedirectResponse("/login?next=" + quote_plus(nxt or "/"), 303)
     if request.method not in SAFE_METHODS and not machine and not _same_site(request):
         return Response("So'rov boshqa saytdan keldi va rad etildi.", 403)
     response = await call_next(request)
+    if (
+        request.method == "GET"
+        and not machine
+        and not path.startswith(("/static/", "/api/", "/sw.js", "/manifest", "/robots", "/sitemap"))
+        and response.headers.get("content-type", "").startswith("text/html")
+    ):
+        vid = request.cookies.get("ws_vid", "")
+        if not re.fullmatch(r"[a-f0-9]{16}", vid):
+            vid = secrets.token_hex(8)
+            response.set_cookie("ws_vid", vid, max_age=personal.YEAR, httponly=True, samesite="lax",
+                                secure=request.url.scheme == "https")  # fmt: skip
+        try:
+            await asyncio.to_thread(personal.count_visit, vid, request.headers.get("user-agent", ""))
+        except Exception:  # counting must never break a page
+            log.exception("visit count failed")
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["X-Content-Type-Options"] = "nosniff"
     # same-origin, not no-referrer: with no-referrer browsers send "Origin: null" on our own forms.
@@ -390,14 +439,7 @@ def _ago(iso: str) -> str:
         d = datetime.now(UTC) - datetime.fromisoformat(iso)
     except ValueError:
         return ""
-    m = int(d.total_seconds() // 60)
-    if m < 1:
-        return "hozir"
-    if m < 60:
-        return f"{m} daq oldin"
-    if m < 1440:
-        return f"{m // 60} soat oldin"
-    return f"{m // 1440} kun oldin"
+    return i18n.ago(int(d.total_seconds() // 60))
 
 
 def _render_brief(body: str, cites: list[dict]) -> Markup:
@@ -438,7 +480,11 @@ templates.env.globals.update(
     fmt_usd=lambda v: facts.human(v, "usd"),
     db_where=db.describe,
     asset=asset,
-    uzname=analyze.display_name,
+    uzname=lambda iso: analyze.display_name(iso, i18n.lang()),
+    _=i18n._,
+    ui_lang=i18n.lang,  # not "lang": several pages already pass a "lang" of their own
+    pick=i18n.pick,
+    public_url=telegram_bot.PUBLIC_URL,
     is_admin=lambda request: _is_admin(request),  # _is_admin is defined further down
     glossary_json=Markup(json.dumps(explain.GLOSSARY, ensure_ascii=False).replace("</", "<\\/")),
 )
@@ -461,7 +507,7 @@ def _articles(hours: int, q: str = "", kind: str = "", cat: str = "", country: s
         sql += " AND countries LIKE ?"
         params.append(f'%"{country}"%')
     sql += " ORDER BY published DESC LIMIT 1500"
-    out = db.rows(sql, params)
+    out = [a for a in db.rows(sql, params) if not analyze.is_noise(a["title"])]
     for a in out:
         a["categories"] = db.loads(a["categories"])
         a["countries"] = db.loads(a["countries"])
@@ -582,12 +628,199 @@ def home(request: Request):
 def save_prefs(request: Request, countries: list[str] = Form([]), topics: list[str] = Form([])):  # noqa: B008
     value = personal.dump_prefs(countries, topics)
     if request.state.user:  # an account follows the chosen countries too, so alerts and the digest know them
+        with db.tx() as c:
+            c.execute(
+                "INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value",
+                (f"prefs:{request.state.user['id']}", value),
+            )
         for c in personal.parse_prefs(value)[0]:
             with contextlib.suppress(watch.WatchError):  # not a sovereign country, or the list is full
                 watch.add(request.state.user["id"], watch.COUNTRY, c)
     resp = RedirectResponse("/", 303)
     _cookie(resp, personal.PREFS_COOKIE, value, request)
     return resp
+
+
+_STORY_CACHE: dict[int, tuple[float, list[dict]]] = {}
+
+
+def _story_group(aid: int) -> list[dict] | None:
+    """Everything this week that tells the same story as article `aid`, oldest first."""
+    hit = _STORY_CACHE.get(aid)
+    if hit and time.monotonic() - hit[0] < 600:
+        return hit[1]
+    a = db.one("SELECT * FROM articles WHERE id = ?", (aid,))
+    if not a:
+        return None
+    a["countries"], a["categories"] = db.loads(a["countries"]), db.loads(a["categories"])
+    pool = _articles(KEEP_DAYS * 24, "", "", "", a["countries"][0]) if a["countries"] else _articles(72)
+    group = next((g for g in analyze.cluster(pool) if any(x["id"] == aid for x in g)), [a])
+    group = sorted(group, key=lambda x: x["published"])
+    if len(_STORY_CACHE) > 300:
+        _STORY_CACHE.clear()
+    _STORY_CACHE[aid] = (time.monotonic(), group)
+    return group
+
+
+@app.get("/story/{aid}", response_class=HTMLResponse)
+def story_page(request: Request, aid: int):
+    group = _story_group(aid)
+    if not group:
+        return templates.TemplateResponse(request, "story.html", {"g": None}, status_code=404)
+    lead = sorted(group, key=lambda x: (x.get("lang") in ("uz", "en"), x["published"]), reverse=True)
+    line = explain.stored([explain.key(lead)]).get(explain.key(lead)) or next(
+        (v for v in explain.stored([explain.key([x]) for x in group]).values()), None
+    )
+    days: dict[str, list[dict]] = {}
+    for x in group:
+        days.setdefault(x["published"][:10], []).append(x)
+    countries = list(dict.fromkeys(c for x in group for c in x["countries"]))[:8]
+    return templates.TemplateResponse(
+        request,
+        "story.html",
+        {"g": group, "lead": lead[0], "line": line, "days": days, "countries": countries,
+         "pubs": len({x["publisher"] for x in group})},
+    )  # fmt: skip
+
+
+FEEDBACK_PER_HOUR = 5
+_FEEDBACK: dict[str, list[float]] = {}
+
+
+@app.get("/feedback", response_class=HTMLResponse)
+def feedback_page(request: Request, page: str = "", sent: int = 0):
+    return templates.TemplateResponse(request, "feedback.html", {"page": page[:300], "sent": sent})
+
+
+@app.post("/feedback")
+async def feedback_send(request: Request, page: str = Form(""), text: str = Form(""), contact: str = Form("")):
+    ip, now = _ip(request), time.time()
+    recent = [t for t in _FEEDBACK.get(ip, []) if now - t < 3600]
+    text = text.strip()[:2000]
+    if not text or len(recent) >= FEEDBACK_PER_HOUR:
+        return RedirectResponse("/feedback?page=" + quote_plus(page), 303)
+    _FEEDBACK[ip] = [*recent, now]
+    who = request.state.user["username"] if request.state.user else ""
+    with db.tx() as c:
+        c.execute(
+            "INSERT INTO feedback (created, page, text, contact, who) VALUES (?,?,?,?,?)",
+            (collectors.now_iso(), page[:300], text, contact.strip()[:200], who),
+        )
+    where = escape(page[:120]) or "sahifa ko'rsatilmagan"
+    note = f"📝 <b>Yangi xabar</b> ({where})\n{escape(text[:600])}"
+    await _tell_admins(note)
+    return RedirectResponse("/feedback?sent=1&page=" + quote_plus(page), 303)
+
+
+async def _tell_admins(text: str) -> None:
+    """A Telegram message to every administrator who linked the bot; quiet when there is none."""
+    if not telegram_bot.enabled():
+        return
+    for u in await asyncio.to_thread(db.rows, "SELECT tg_chat FROM users WHERE role = 'admin' AND tg_chat IS NOT NULL"):
+        with contextlib.suppress(Exception):
+            await telegram_bot.send(u["tg_chat"], text)
+
+
+@app.get("/lang/{code}")
+def set_language(request: Request, code: str, next: str = "/"):
+    resp = RedirectResponse(next if next.startswith("/") and not next.startswith("//") else "/", 303)
+    _cookie(resp, i18n.COOKIE, code if code in i18n.LANGS else "uz", request)
+    return resp
+
+
+@app.get("/push/key")
+def push_key():
+    return {"key": push.public_key()}
+
+
+@app.post("/push/subscribe")
+async def push_subscribe(request: Request):
+    try:
+        sub = await request.json()
+    except ValueError:
+        return JSONResponse({"ok": False}, status_code=400)
+    ok = await asyncio.to_thread(
+        push.subscribe, sub if isinstance(sub, dict) else {}, _uid(request),
+        request.cookies.get(personal.PREFS_COOKIE, ""),
+    )  # fmt: skip
+    return JSONResponse({"ok": ok}, status_code=200 if ok else 400)
+
+
+@app.post("/push/unsubscribe")
+async def push_unsubscribe(request: Request):
+    try:
+        sub = await request.json()
+    except ValueError:
+        return JSONResponse({"ok": False}, status_code=400)
+    await asyncio.to_thread(push.unsubscribe, str((sub or {}).get("endpoint", "")))
+    return {"ok": True}
+
+
+@app.post("/push/test")
+async def push_test(request: Request):
+    subs = await asyncio.to_thread(push.subscribers, _uid(request))
+    n = 0
+    for sub in subs:
+        n += await asyncio.to_thread(push.send, sub, "WorldScope", "Bildirishnomalar ishlayapti ✅", "/watch")
+    return {"sent": n}
+
+
+MANIFEST = {
+    "name": "WorldScope — dunyo yangiliklari oddiy tilda",
+    "short_name": "WorldScope",
+    "lang": "uz",
+    "start_url": "/?src=app",
+    "scope": "/",
+    "display": "standalone",
+    "background_color": "#0b1426",
+    "theme_color": "#0b1426",
+    "description": "Bugun dunyoda nima bo'ldi va bizga qanday ta'sir qiladi — 3 daqiqada.",
+    "icons": [
+        {"src": "/static/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable"},
+        {"src": "/static/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable"},
+    ],
+    "shortcuts": [
+        {"name": "Globus", "url": "/map"},
+        {"name": "Sanksiyalar", "url": "/sanctions"},
+        {"name": "Mening sahifam", "url": "/watch"},
+    ],
+}
+
+
+@app.get("/manifest.webmanifest")
+def manifest():
+    return Response(json.dumps(MANIFEST, ensure_ascii=False), media_type="application/manifest+json")
+
+
+@app.get("/sw.js")
+def service_worker():
+    """At the site root so it may handle every page; its own version follows the deploy."""
+    body = (HERE / "static" / "sw.js").read_text().replace("__VERSION__", ASSET_VERSION)
+    return Response(body, media_type="text/javascript", headers={"Cache-Control": "no-cache"})
+
+
+@app.get("/offline", response_class=HTMLResponse)
+def offline_page(request: Request):
+    return templates.TemplateResponse(request, "offline.html", {})
+
+
+@app.get("/robots.txt")
+def robots_txt():
+    body = "User-agent: *\nDisallow: /login\nDisallow: /register\nDisallow: /account\nDisallow: /admin\n"
+    body += "Disallow: /watch\nDisallow: /api/\n" + f"Sitemap: {telegram_bot.PUBLIC_URL}/sitemap.xml\n"
+    return Response(body, media_type="text/plain")
+
+
+@app.get("/sitemap.xml")
+def sitemap_xml():
+    base = telegram_bot.PUBLIC_URL
+    paths = ["/", "/news", "/map", "/country", "/sanctions", "/risk", "/tools", "/quiz", "/predictions", "/debt"]
+    paths += [f"/country/{c}" for c in pairs.SOVEREIGN]
+    _arts, ov, _hero = _feed_data(24, "", "", "", "")
+    paths += [f"/story/{g[0]['id']}" for g in ov["groups"][:60] if _pubs(g) >= 2]
+    urls = "".join(f"<url><loc>{escape(base + p)}</loc></url>" for p in paths)
+    xml = f'<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">{urls}</urlset>'
+    return Response(xml, media_type="application/xml")
 
 
 TOOLS = [  # (path, icon, name, what it answers, admin only)
@@ -1111,6 +1344,7 @@ def sanctions_page(
             "q": q, "iso": iso, "lst": lst, "kind": kind if kind in sanctions.KINDS else "", "error": error,
             "results": results, "country": country, "top": top, "partners": partners,
             "uz": st.get("UZB", {}), "uz_rows": sanctions.for_country("UZB", limit=60) if not (q or iso) else [],
+            "recent": sanctions.recent() if not (q or iso) else [],
             "status": sanctions.status(), "totals": sanctions.totals(), "LISTS": sanctions.LISTS,
             "KINDS": sanctions.KINDS, "PROGRAMS": PROGRAM_LABELS, "options": pairs.country_options(),
             "TIERS": pairs.TIERS, "name": analyze.display_name, "match": sanctions.match_label,
@@ -1293,13 +1527,46 @@ async def job_digest(force: bool = False) -> dict:
     with db.tx() as c:
         c.execute("INSERT INTO digests (created, body, model) VALUES (?,?,?)", (collectors.now_iso(), body, model))
     sent = await telegram_bot.broadcast(body) if telegram_bot.enabled() else 0
-    personal = 0
-    if telegram_bot.enabled():  # people who linked Telegram also get their own countries
+    groups = await asyncio.to_thread(analyze.cluster, arts)
+    groups.sort(key=_pubs, reverse=True)
+    lines = await asyncio.to_thread(explain.for_groups, groups[:120])
+    personal_sent = 0
+    if telegram_bot.enabled():  # people who linked Telegram also get their own countries and topics
         for u in await asyncio.to_thread(db.rows, "SELECT id, tg_chat FROM users WHERE tg_chat IS NOT NULL"):
-            text = await asyncio.to_thread(watch.personal_digest, u["id"], arts)
+            countries, topics = await asyncio.to_thread(_user_prefs, u["id"])
+            text = personal.digest_text(groups, countries, topics, lines, explain.key, telegram_bot.PUBLIC_URL)
             if text:
-                personal += await telegram_bot.send(u["tg_chat"], text)
-    return {"sent": sent, "personal": personal, "model": model}
+                personal_sent += await telegram_bot.send(u["tg_chat"], text)
+    pushed = await asyncio.to_thread(_push_morning, groups, lines)
+    return {"sent": sent, "personal": personal_sent, "push": pushed, "model": model}
+
+
+def _user_prefs(user_id: int) -> tuple[list[str], list[str]]:
+    """An account's interests: followed countries plus the topics chosen on the site."""
+    row = db.one("SELECT value FROM meta WHERE key = ?", (f"prefs:{user_id}",))
+    countries, topics = personal.parse_prefs(row["value"] if row else "")
+    for it in watch.items(user_id):
+        if it["kind"] == watch.COUNTRY and it["value"] not in countries:
+            countries.append(it["value"])
+    return countries, topics
+
+
+def _push_morning(groups: list[list[dict]], lines: dict) -> int:
+    """Each browser that asked for it gets its own top story of the morning."""
+    sent = 0
+    for sub in push.subscribers():
+        countries, topics = personal.parse_prefs(sub["prefs"])
+        if sub["user_id"]:
+            uc, ut = _user_prefs(sub["user_id"])
+            countries, topics = countries or uc, topics or ut
+        chosen = personal.picks(groups, countries, topics, n=1)
+        if not chosen:
+            continue
+        g = chosen[0]
+        line = lines.get(explain.key(g)) or {}
+        title = personal.headline(g, lines, explain.key)
+        sent += push.send(sub, "WorldScope · bugun", f"{line.get('emoji', '🌍')} {title}", f"/story/{g[0]['id']}")
+    return sent
 
 
 async def job_weekly() -> dict:
@@ -1445,6 +1712,9 @@ def api_articles(hours: str = "24", q: str = "", kind: str = "", cat: str = "", 
 async def notify(user_id: int, kind: str, text: str) -> None:
     """An alert on the watch page, and in Telegram when the person linked it."""
     await asyncio.to_thread(watch.note, user_id, kind, text)
+    if user_id:
+        for sub in await asyncio.to_thread(push.subscribers, user_id):
+            await asyncio.to_thread(push.send, sub, "WorldScope · kuzatuv", text[:180], "/watch")
     if telegram_bot.enabled():
         u = await asyncio.to_thread(accounts.get, user_id) if user_id else None
         if u and u.get("tg_chat"):
@@ -1535,6 +1805,7 @@ async def job_explain() -> dict:
 
 
 JOBS = {
+    "backup": lambda: job_backup(),  # defined with the other backup code below
     "refresh": job_refresh,
     "explain": job_explain,
     "automap": job_automap,
@@ -1576,10 +1847,15 @@ async def run_due_jobs(force: bool = False) -> dict:
                 results[name] = {"error": str(e)}
             except Exception as e:
                 log.exception("job %s failed", name)
-                results[name] = {"error": type(e).__name__}
+                results[name] = {"error": type(e).__name__, "crash": True}
             await asyncio.to_thread(scheduler.mark, name)
         if results:
             log.info("jobs: %s", {k: v for k, v in results.items() if v})
+        crashed = [f"{k}: {v['error']}" for k, v in results.items() if isinstance(v, dict) and v.get("crash")]
+        if crashed:  # a bug, not a quota: the administrators hear about it
+            await _tell_admins(
+                "⚠️ <b>Rejali ish xato bilan tugadi</b>\n" + escape("\n".join(crashed)) + "\nLoglarni tekshiring."
+            )
     finally:
         state["jobs"] = ""
     return results
@@ -1655,10 +1931,57 @@ def login(
     return _signed_in(request, user, next)
 
 
+_SIGNUPS: dict[str, list[float]] = {}
+SIGNUPS_PER_HOUR = 3
+
+
+def _ip(request: Request) -> str:
+    return request.headers.get("x-forwarded-for", request.client.host if request.client else "?").split(",")[0].strip()
+
+
+@app.get("/register", response_class=HTMLResponse)
+def register_page(request: Request, next: str = "/", error: str = ""):
+    if accounts.mode(PASSWORD) != "accounts":  # the first account is made on the login page
+        return RedirectResponse("/login", 303)
+    return templates.TemplateResponse(request, "register.html", {"next": next, "error": error})
+
+
+@app.post("/register")
+def register(
+    request: Request,
+    username: str = Form(""),
+    password: str = Form(""),
+    password2: str = Form(""),
+    website: str = Form(""),  # a field people never see: bots fill it in
+    next: str = Form("/"),
+):
+    back = "/register?next=" + quote_plus(next) + "&error="
+    if accounts.mode(PASSWORD) != "accounts":
+        return RedirectResponse("/login", 303)
+    ip, now = _ip(request), time.time()
+    recent = [t for t in _SIGNUPS.get(ip, []) if now - t < 3600]
+    if website or len(recent) >= SIGNUPS_PER_HOUR:
+        return RedirectResponse(back + quote_plus("Juda ko'p urinish. Birozdan keyin qayta urinib ko'ring."), 303)
+    if password != password2:
+        return RedirectResponse(back + quote_plus("Ikki parol bir xil emas"), 303)
+    try:
+        user = accounts.create(username, password, role="user")
+    except accounts.AccountError as e:
+        return RedirectResponse(back + quote_plus(str(e)), 303)
+    _SIGNUPS[ip] = [*recent, now]
+    if len(_SIGNUPS) > 5000:
+        _SIGNUPS.clear()
+    log.info("new account: %s", user["username"])
+    for c in personal.parse_prefs(request.cookies.get(personal.PREFS_COOKIE))[0]:  # interests chosen before signing up
+        with contextlib.suppress(watch.WatchError):
+            watch.add(user["id"], watch.COUNTRY, c)
+    return _signed_in(request, user, next if next.startswith("/") and not next.startswith("//") else "/")
+
+
 @app.post("/logout")
 def logout(request: Request):
     accounts.end_session(request.cookies.get(accounts.COOKIE))
-    resp = RedirectResponse("/login", 303)
+    resp = RedirectResponse("/", 303)
     resp.delete_cookie(accounts.COOKIE, path="/")
     return resp
 
@@ -1707,8 +2030,18 @@ def _admin_ctx(request: Request, **extra) -> dict:
     return {
         "users": accounts.list_users(), "me": request.state.user, "jobs": last, "EVERY": scheduler.EVERY,
         "embed": embed.status(), "sanc": sanctions.status(), "db_desc": db.describe(),
-        "ai_used": ai_used_today(), "preds": predictions.stats(), **extra,
+        "ai_used": ai_used_today(), "preds": predictions.stats(), "visits": personal.visit_stats(),
+        "feedback": db.rows("SELECT * FROM feedback ORDER BY done, id DESC LIMIT 40"), **extra,
     }  # fmt: skip
+
+
+@app.post("/admin/feedback/{fid}/done")
+def admin_feedback_done(request: Request, fid: int):
+    if not _is_admin(request):
+        return Response("Faqat administrator uchun", 403)
+    with db.tx() as c:
+        c.execute("UPDATE feedback SET done = 1 WHERE id = ?", (fid,))
+    return RedirectResponse("/admin#xabarlar", 303)
 
 
 @app.get("/admin", response_class=HTMLResponse)
@@ -1778,8 +2111,16 @@ async def _run_one(job: str) -> None:
 
 
 BACKUP_TABLES = ["users", "watch_items", "alerts", "pairs", "pair_history", "maps", "briefs", "debt_reports",
-                 "framings", "predictions", "prediction_votes", "digests", "tg_subscribers", "tg_follows", "sources",
-                 "meta"]  # fmt: skip
+                 "framings", "predictions", "prediction_votes", "feedback", "push_subs", "digests", "tg_subscribers",
+                 "tg_follows", "sources", "meta"]  # fmt: skip
+
+
+def _backup_json() -> str:
+    dump = {"version": 1, "made": collectors.now_iso(), "tables": {}}
+    for t in BACKUP_TABLES:
+        dump["tables"][t] = db.rows(f"SELECT * FROM {t}")
+    dump["tables"]["meta"] = [r for r in dump["tables"]["meta"] if not r["key"].startswith("vapid:")]  # a secret
+    return json.dumps(dump, ensure_ascii=False, default=str)
 
 
 @app.get("/admin/export")
@@ -1788,15 +2129,30 @@ def admin_export(request: Request):
     keep it before the free database expires and load it into the new one with /admin/import."""
     if not _is_admin(request):
         return Response("Faqat administrator uchun", 403)
-    dump = {"version": 1, "made": collectors.now_iso(), "tables": {}}
-    for t in BACKUP_TABLES:
-        dump["tables"][t] = db.rows(f"SELECT * FROM {t}")
     name = f"worldscope-zaxira-{collectors.now_iso()[:10]}.json"
     return Response(
-        json.dumps(dump, ensure_ascii=False, default=str),
+        _backup_json(),
         media_type="application/json",
         headers={"Content-Disposition": f'attachment; filename="{name}"'},
     )
+
+
+async def job_backup() -> dict:
+    """Once a week the backup file goes to every administrator who linked Telegram."""
+    if not telegram_bot.enabled():
+        return {"skipped": "Telegram bot yo'q"}
+    chats = await asyncio.to_thread(db.rows, "SELECT tg_chat FROM users WHERE role = 'admin' AND tg_chat IS NOT NULL")
+    if not chats:
+        return {"skipped": "Telegram bog'lagan administrator yo'q"}
+    raw = (await asyncio.to_thread(_backup_json)).encode()
+    packed = gzip.compress(raw)
+    name = f"worldscope-zaxira-{collectors.now_iso()[:10]}.json.gz"
+    caption = ("🗄 <b>Haftalik zaxira</b>\nTiklash: saytda Boshqaruv → Zaxirani yuklash, shu faylni o'zini tanlang."
+               f"\nHajmi: {len(raw) // 1024} KB")  # fmt: skip
+    sent = 0
+    for c in chats:
+        sent += await telegram_bot.send_document(c["tg_chat"], name, packed, caption)
+    return {"sent": sent, "kb": len(packed) // 1024}
 
 
 @app.post("/admin/import")
@@ -1804,9 +2160,12 @@ async def admin_import(request: Request, file: UploadFile = File(...)):  # noqa:
     if not _is_admin(request):
         return Response("Faqat administrator uchun", 403)
     try:
-        dump = json.loads(await file.read())
+        raw = await file.read()
+        if raw[:2] == b"\x1f\x8b":  # the weekly .json.gz from Telegram, as it came
+            raw = gzip.decompress(raw)
+        dump = json.loads(raw)
         tables = dump["tables"]
-    except (ValueError, KeyError, TypeError):
+    except (ValueError, KeyError, TypeError, OSError, EOFError):
         return RedirectResponse("/admin?error=" + quote_plus("Fayl zaxira emas"), 303)
     added = await asyncio.to_thread(_import_tables, tables)
     accounts._exists_cache["yes"] = False

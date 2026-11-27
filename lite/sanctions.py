@@ -521,6 +521,15 @@ def search(q: str, country: str = "", lst: str = "", limit: int = 40) -> list[di
     return out[:limit]
 
 
+def recent(limit: int = 20) -> list[dict]:
+    """The latest additions, by the date the publisher gives (not every list has one)."""
+    rows = db.rows(
+        "SELECT * FROM sanctions WHERE listed != '' AND listed <= ? ORDER BY listed DESC, id DESC LIMIT ?",
+        (datetime.now(UTC).date().isoformat(), limit),
+    )
+    return [_row(r) for r in rows]
+
+
 def match_label(score: float) -> str:
     if score >= 0.95:
         return "to'liq mos"

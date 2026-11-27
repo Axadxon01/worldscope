@@ -1,7 +1,7 @@
 {% extends "base.html" %}
-{% block title %}Haftalik test · WorldScope Lite{% endblock %}
+{% block title %}{{ _("Haftalik test") }} · WorldScope{% endblock %}
 {% block body %}
-<header class="countryhead"><h1>🧩 Haftalik test</h1></header>
+<header class="countryhead"><h1>{{ _("🧩 Haftalik test") }}</h1>{% if ui_lang() == "ru" %}<p class="langnote">{{ _("Bu bo'lim hozircha faqat o'zbek tilida.") }}</p>{% endif %}</header>
 {% if qs|length >= 3 %}
 <p class="lede">Bu haftaning dunyo xaritasidan {{ qs|length }} ta savol. Javobni bosing — darhol to'g'ri yoki noto'g'ri ekanini va sababini ko'rasiz.</p>
 <ol class="quiz" id="quiz" data-week="{{ week }}">
@@ -49,7 +49,7 @@
 })();
 </script>
 {% else %}
-<div class="empty"><h2>Bu haftaning testi hali tayyor emas</h2>
+<div class="empty"><h2>{{ _("Bu haftaning testi hali tayyor emas") }}</h2>
   <p>Savollar haftaning dunyo xaritalaridan tuziladi. Xarita har kuni avtomatik yangilanadi — bir-ikki kundan keyin qayting.</p>
   <p><a href="/">Bugungi yangiliklar →</a></p></div>
 {% endif %}

@@ -205,6 +205,29 @@ CREATE TABLE IF NOT EXISTS prediction_votes (
     created     TEXT NOT NULL,
     PRIMARY KEY (pid, voter)
 );
+CREATE TABLE IF NOT EXISTS feedback (
+    id          INTEGER PRIMARY KEY,
+    created     TEXT NOT NULL,
+    page        TEXT NOT NULL DEFAULT '',
+    text        TEXT NOT NULL,
+    contact     TEXT NOT NULL DEFAULT '',
+    who         TEXT NOT NULL DEFAULT '',   -- the account name, if any
+    done        INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS visits (
+    day         TEXT NOT NULL,              -- YYYY-MM-DD, UTC
+    visitor     TEXT NOT NULL,              -- a salted hash of the visitor cookie, never the cookie itself
+    first_day   TEXT NOT NULL,              -- the day this visitor was first seen
+    PRIMARY KEY (day, visitor)
+);
+CREATE TABLE IF NOT EXISTS push_subs (
+    endpoint    TEXT PRIMARY KEY,
+    keys        TEXT NOT NULL,              -- JSON {p256dh, auth}
+    user_id     INTEGER NOT NULL DEFAULT 0,
+    prefs       TEXT NOT NULL DEFAULT '',
+    created     TEXT NOT NULL,
+    fails       INTEGER NOT NULL DEFAULT 0
+);
 CREATE TABLE IF NOT EXISTS ai_usage (
     day         TEXT PRIMARY KEY,       -- YYYY-MM-DD, UTC
     calls       INTEGER NOT NULL DEFAULT 0

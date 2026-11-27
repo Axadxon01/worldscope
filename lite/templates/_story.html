@@ -1,29 +1,29 @@
-{# One story: an Uzbek headline (when the AI has written one), a plain sentence, what it means for us,
-   how many outlets reported it, and the original headline small underneath. #}
+{# One story: a headline in the page's language (when the AI has written one), a plain sentence, what it
+   means for us, how many outlets reported it, and the original headline small underneath. #}
 {% macro story(g, line, lead=False, fresh=False) %}
 {% set a = g[0] %}{% set n = g|map(attribute='publisher')|unique|list|length %}
-{% set head = line.title if line and line.title else a.title %}
+{% set head = pick(line, "title") or a.title %}{% set simple = pick(line, "simple") %}{% set why = pick(line, "why") %}
 <article class="story{{ ' lead' if lead }}">
   <div class="sh">
     {% if line %}<span class="emo" aria-hidden="true">{{ line.emoji }}</span>{% endif %}
-    <h3><a href="{{ a.url }}" target="_blank" rel="noopener noreferrer">{{ head }}</a></h3>
+    <h3><a href="/story/{{ a.id }}">{{ head }}</a></h3>
   </div>
-  {% if line %}
-  <p class="plainline">{{ line.simple }}</p>
-  {% if line.why %}<p class="uz"><b>🇺🇿 Bizga ta'siri:</b> {{ line.why }}</p>{% endif %}
+  {% if simple %}
+  <p class="plainline">{{ simple }}</p>
+  {% if why %}<p class="uz"><b>{{ _("🇺🇿 Bizga ta'siri:") }}</b> {{ why }}</p>{% endif %}
   {% elif lead and a.summary %}<p class="sum">{{ a.summary[:240] }}{% if a.summary|length > 240 %}…{% endif %}</p>{% endif %}
   <div class="meta">
-    {% if fresh %}<span class="new">Yangi</span>{% endif %}
-    <span class="src" title="{{ n }} ta turli nashr yozgan — qancha ko'p bo'lsa, voqea shuncha muhim va ishonchli">👥 {{ n }} manba</span>
+    {% if fresh %}<span class="new">{{ _("Yangi") }}</span>{% endif %}
+    <span class="src" title="{{ n }}">👥 {{ n }} {{ _("manba") }}</span>
     <span>· <time title="{{ a.published }}">{{ a.published|ago }}</time></span>
     {% for c in a.countries[:4] %}<a class="chip" href="/country/{{ c }}">{{ uzname(c) }}</a>{% endfor %}
-    <button type="button" class="share" data-title="{{ head }}" data-text="{{ line.simple if line else head }}" data-url="{{ a.url }}"
-      aria-label="Ulashish">↗ Ulashish</button>
+    <button type="button" class="share" data-title="{{ head }}" data-text="{{ simple or head }}" data-url="{{ public_url }}/story/{{ a.id }}"
+      aria-label="{{ _("Ulashish") }}">{{ _("↗ Ulashish") }}</button>
   </div>
   {% if head != a.title or g|length > 1 %}
-  <details class="more-src"><summary>{% if head != a.title %}Asl sarlavha va {% endif %}{{ n }} ta manba</summary>
+  <details class="more-src"><summary>{% if head != a.title %}{{ _("Asl sarlavha va") }} {% endif %}{{ n }} {{ _("ta manba") }}</summary>
     <ul class="srcs">{% for x in g[:12] %}<li><a href="{{ x.url }}" target="_blank" rel="noopener noreferrer">{{ x.title }}</a> <span class="muted">— {{ x.publisher }}</span></li>{% endfor %}
-      {% if g|length > 12 %}<li class="muted">… yana {{ g|length - 12 }} ta</li>{% endif %}</ul>
+      {% if g|length > 12 %}<li class="muted">… +{{ g|length - 12 }}</li>{% endif %}</ul>
   </details>
   {% endif %}
 </article>

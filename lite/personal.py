@@ -131,3 +131,95 @@ def quiz(links: list[dict], seed: str, n: int = 5) -> list[dict]:
         if len(out) >= n:
             break
     return out
+
+
+# ------------------------------------------------------------------ how many people come, and come back
+
+_SEEN: set[tuple[str, str]] = set()
+BOTS = ("bot", "crawl", "spider", "slurp", "preview", "headless", "python-", "curl", "wget")
+
+
+def visitor_hash(vid: str) -> str:
+    """The cookie id is never stored: only a salted hash of it."""
+    import hashlib
+
+    return hashlib.sha256(("worldscope-visit:" + vid).encode()).hexdigest()[:20]
+
+
+def count_visit(vid: str, user_agent: str, now: datetime | None = None) -> None:
+    import db
+
+    if not vid or any(b in (user_agent or "").lower() for b in BOTS):
+        return
+    day = (now or datetime.now(UTC)).date().isoformat()
+    h = visitor_hash(vid)
+    if (day, h) in _SEEN:
+        return
+    if len(_SEEN) > 50_000:
+        _SEEN.clear()
+    _SEEN.add((day, h))
+    first = db.one("SELECT MIN(first_day) AS d FROM visits WHERE visitor = ?", (h,))
+    with db.tx() as c:
+        c.execute(
+            "INSERT INTO visits (day, visitor, first_day) VALUES (?,?,?) ON CONFLICT DO NOTHING",
+            (day, h, (first or {}).get("d") or day),
+        )
+
+
+def visit_stats(days: int = 14, now: datetime | None = None) -> dict:
+    """Per day: visitors, of them returning (seen on an earlier day); and the week's return rate."""
+    import db
+
+    today = (now or datetime.now(UTC)).date()
+    since = (today - timedelta(days=days - 1)).isoformat()
+    rows = db.rows(
+        "SELECT day, COUNT(*) AS n, SUM(CASE WHEN first_day < day THEN 1 ELSE 0 END) AS back "
+        "FROM visits WHERE day >= ? GROUP BY day ORDER BY day",
+        (since,),
+    )
+    week = (today - timedelta(days=6)).isoformat()
+    w = db.one(
+        "SELECT COUNT(DISTINCT visitor) AS n, COUNT(DISTINCT CASE WHEN first_day < day THEN visitor END) AS back "
+        "FROM visits WHERE day >= ?",
+        (week,),
+    )
+    total = db.one("SELECT COUNT(DISTINCT visitor) AS n FROM visits")["n"]
+    n, back = (w or {}).get("n") or 0, (w or {}).get("back") or 0
+    return {"days": rows, "week": n, "week_back": back, "rate": round(100 * back / n) if n else None, "all": total}
+
+
+# ------------------------------------------------------------------ the morning message, for one person
+
+
+def picks(groups: list[list[dict]], countries: list[str], topics: list[str], n: int = 5) -> list[list[dict]]:
+    """The person's stories first (most-covered first), then the day's biggest, n in all."""
+    cs, ts = set(countries), set(topics)
+    mine = [g for g in groups if (cs or ts) and matches(g, cs, ts)]
+    rest = [g for g in groups if g not in mine and len({a["publisher"] for a in g}) >= 2]
+    return (mine + rest)[:n]
+
+
+def headline(group: list[dict], lines: dict, key) -> str:
+    line = lines.get(key(group))
+    return (line or {}).get("title") or group[0]["title"]
+
+
+def digest_text(groups: list[list[dict]], countries: list[str], topics: list[str], lines: dict, key, base: str) -> str:
+    """Telegram HTML: the person's stories with links to their WorldScope pages."""
+    import html
+
+    chosen = picks(groups, countries, topics)
+    if not chosen or not (countries or topics):
+        return ""
+    names = ", ".join(analyze.display_name(c) for c in countries[:6])
+    out = [f"📌 <b>Siz uchun bugun</b>{f' ({html.escape(names)})' if names else ''}", ""]
+    for g in chosen:
+        pubs = len({a["publisher"] for a in g})
+        line = lines.get(key(g)) or {}
+        out.append(
+            f'• <a href="{base}/story/{g[0]["id"]}">{html.escape(headline(g, lines, key))}</a> <i>({pubs} manba)</i>'
+        )
+        if line.get("why"):
+            out.append(f"  🇺🇿 {html.escape(line['why'])}")
+    out.append(f"\nQiziqishlarni o'zgartirish: {base}/#prefs")
+    return "\n".join(out)

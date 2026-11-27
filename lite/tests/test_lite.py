@@ -20,7 +20,7 @@ import collectors
 NOW = datetime.now(UTC)
 # modules that hold a database handle or settings read at import: reloaded for every test
 MODULES = ("db", "facts", "debt", "telegram_bot", "sanctions", "risk", "framing", "accounts", "watch",
-           "predictions", "trade", "scheduler", "embed", "explain", "relations", "personal", "app")  # fmt: skip
+           "predictions", "trade", "scheduler", "embed", "explain", "relations", "personal", "push", "app")  # fmt: skip
 
 
 def use_test_db(monkeypatch, tmp_path, name):
@@ -262,10 +262,12 @@ def test_setup_password_makes_the_first_admin_then_stops_working(tmp_path, monke
     from fastapi.testclient import TestClient
 
     with TestClient(app_mod.app, headers={"origin": "http://testserver"}) as c:
-        r = c.get("/", follow_redirects=False)
-        assert r.status_code == 303 and r.headers["location"].startswith("/login")
+        assert c.get("/", follow_redirects=False).status_code == 200  # reading is open to everyone
+        r = c.get("/watch", follow_redirects=False)
+        assert r.status_code == 303 and r.headers["location"] == "/login?next=%2Fwatch"
+        assert c.get("/admin", follow_redirects=False).headers["location"].startswith("/login")
         assert c.get("/healthz").status_code == 200
-        assert c.get("/api/articles").status_code == 401
+        assert c.get("/api/articles").status_code == 200
         assert "Birinchi sozlash" in c.get("/login").text
         bad = c.post("/login", data={"setup": "wrong", "username": "akhad", "password": "longpassword1",
                                      "password2": "longpassword1"}, follow_redirects=False)  # fmt: skip
@@ -278,13 +280,13 @@ def test_setup_password_makes_the_first_admin_then_stops_working(tmp_path, monke
         page = c.get("/admin").text
         assert "akhad" in page and "Rejali ishlar" in page
         c.post("/logout")
-        assert c.get("/", follow_redirects=False).status_code == 303
+        assert c.get("/watch", follow_redirects=False).status_code == 303
         # the setup password no longer opens anything, a wrong password does not, the right one does
         again = c.post("/login", data={"setup": "s3cret", "username": "intruder", "password": "x" * 10,
                                        "password2": "x" * 10}, follow_redirects=False)  # fmt: skip
         assert "error=" in again.headers["location"]
         assert [u["username"] for u in app_mod.accounts.list_users()] == ["akhad"]
-        assert c.get("/", auth=("any", "s3cret"), follow_redirects=False).status_code == 303
+        assert c.get("/watch", auth=("any", "s3cret"), follow_redirects=False).status_code == 303
         r = c.post("/login", data={"username": "AKHAD", "password": "longpassword1"}, follow_redirects=False)
         assert r.headers["location"] == "/" and c.get("/").status_code == 200
 
@@ -1962,3 +1964,146 @@ def test_quiz_tools_and_votes(client):
     c.post(f"/predictions/{pid}/vote", data={"vote": "no"})  # changing one's mind replaces the vote
     page = c.get("/predictions").text
     assert "0% &#34;bo&#39;ladi&#34; (1 ovoz)" in page or '0% "bo\'ladi" (1 ovoz)' in page
+
+
+def test_public_reading_signup_and_what_needs_an_account(tmp_path, monkeypatch):
+    app_mod = gated_app(tmp_path, monkeypatch)
+    acc = app_mod.accounts
+    from fastapi.testclient import TestClient
+
+    with TestClient(app_mod.app, headers={"origin": "http://testserver"}) as c:
+        acc.create("boss", "bosspassword", "admin")
+        for page in ("/", "/news", "/map", "/sanctions", "/risk", "/tools", "/quiz", "/predictions", "/country/UZB"):
+            assert c.get(page, follow_redirects=False).status_code == 200, page
+        home = c.get("/").text
+        assert 'href="/login?next=/"' in home and "Yangilash" not in home
+        assert 'name="robots"' not in home and 'name="robots"' in c.get("/login").text
+        # spending the shared AI budget, refreshing and managing sources need someone known
+        assert (
+            c.post("/pair", data={"a": "UZB", "b": "KAZ"}, follow_redirects=False)
+            .headers["location"]
+            .startswith("/login")
+        )
+        assert c.post("/refresh", follow_redirects=False).headers["location"].startswith("/login")
+        assert c.post("/prefs", data={"countries": ["UZB"]}, follow_redirects=False).status_code == 303
+        bot = c.post("/register", data={"username": "robot", "password": "x" * 10, "password2": "x" * 10,
+                                        "website": "spam"}, follow_redirects=False)  # fmt: skip
+        assert "error=" in bot.headers["location"] and len(acc.list_users()) == 1
+        ok = c.post("/register", data={"username": "nodira", "password": "nodira-pass1", "password2": "nodira-pass1",
+                                       "next": "/watch"}, follow_redirects=False)  # fmt: skip
+        assert ok.headers["location"] == "/watch" and acc.COOKIE in ok.cookies
+        me = next(u for u in acc.list_users() if u["username"] == "nodira")
+        assert me["role"] == "user" and [i["value"] for i in app_mod.watch.items(me["id"])] == ["UZB"]  # chosen before
+        assert c.get("/watch").status_code == 200
+        assert c.get("/admin").status_code == 403 and c.post("/refresh").status_code == 403
+        assert c.get("/sources").status_code == 403
+
+
+def test_story_page_feedback_and_sharing(client, monkeypatch):
+    c, app_mod = client
+    g = app_mod._top_groups(48, 1)[0]
+    page = c.get(f"/story/{g[0]['id']}")
+    assert page.status_code == 200 and "Voqea qanday rivojlandi" in page.text
+    assert 'property="og:image"' in page.text and "/static/og.png" in page.text
+    assert c.get("/story/999999").status_code == 404
+    told = []
+
+    async def tell(text):
+        told.append(text)
+
+    monkeypatch.setattr(app_mod, "_tell_admins", tell)
+    r = c.post("/feedback", data={"page": "/story/1", "text": "Tarjima xato"}, follow_redirects=False)
+    assert "sent=1" in r.headers["location"] and told and "Tarjima xato" in told[0]
+    assert app_mod.db.one("SELECT text FROM feedback")["text"] == "Tarjima xato"
+    assert "Tarjima xato" in c.get("/admin").text
+    for _ in range(app_mod.FEEDBACK_PER_HOUR + 1):
+        c.post("/feedback", data={"text": "spam"})
+    assert app_mod.db.one("SELECT COUNT(*) AS n FROM feedback")["n"] == app_mod.FEEDBACK_PER_HOUR
+    assert "Disallow: /admin" in c.get("/robots.txt").text
+    sm = c.get("/sitemap.xml").text
+    assert "<urlset" in sm and "/country/UZB" in sm
+    assert c.get("/manifest.webmanifest").json()["short_name"] == "WorldScope"
+    sw = c.get("/sw.js")
+    assert "__VERSION__" not in sw.text and "showNotification" in sw.text
+
+
+def test_push_digest_backup_and_visits(client, monkeypatch):
+    c, app_mod = client
+    P = app_mod.push
+    assert len(P.public_key()) > 80 and P.public_key() == P.public_key()  # made once, then kept
+    sub = {"endpoint": "https://push.example/abc", "keys": {"p256dh": "k", "auth": "a"}}
+    c.cookies.set(app_mod.personal.PREFS_COOKIE, "UZB|energy")
+    assert c.post("/push/subscribe", json=sub).json() == {"ok": True}
+    assert c.post("/push/subscribe", json={"endpoint": "http://bad"}).status_code == 400
+    assert P.subscribers()[0]["prefs"] == "UZB|energy"
+    sent = []
+
+    import pywebpush
+
+    def fake(subscription_info, data, **kw):
+        sent.append(json.loads(data))
+
+    monkeypatch.setattr(pywebpush, "webpush", fake)
+    groups = app_mod._top_groups(48, 1)
+    assert app_mod._push_morning(groups, {}) == 1 and sent[0]["url"].startswith("/story/")
+
+    def gone(subscription_info, data, **kw):
+        raise pywebpush.WebPushException("gone", response=type("R", (), {"status_code": 410})())
+
+    monkeypatch.setattr(pywebpush, "webpush", gone)
+    assert not P.send(P.subscribers()[0], "t", "b") and P.subscribers() == []  # a dead subscription is dropped
+
+    text = app_mod.personal.digest_text(groups, ["UZB"], [], {}, app_mod.explain.key, "https://ws.example")
+    assert "Siz uchun bugun" in text and "https://ws.example/story/" in text
+    assert app_mod.personal.digest_text(groups, [], [], {}, app_mod.explain.key, "x") == ""
+
+    backup = json.loads(app_mod._backup_json())
+    assert not any(r["key"].startswith("vapid:") for r in backup["tables"]["meta"])  # the key stays home
+    docs = []
+
+    async def send_document(chat, name, content, caption=""):
+        docs.append((chat, name, len(content)))
+        return True
+
+    monkeypatch.setattr(app_mod.telegram_bot, "token", lambda: "t")
+    monkeypatch.setattr(app_mod.telegram_bot, "send_document", send_document)
+    assert asyncio_run(app_mod.job_backup()) == {"skipped": "Telegram bog'lagan administrator yo'q"}
+    u = app_mod.accounts.create("boss", "bosspassword", "admin")
+    with app_mod.db.tx() as cx:
+        cx.execute("UPDATE users SET tg_chat = '77' WHERE id = ?", (u["id"],))
+    assert asyncio_run(app_mod.job_backup())["sent"] == 1 and docs[0][1].endswith(".json.gz")
+
+    c.cookies.clear()
+    c.get("/")
+    c.get("/news")
+    st = app_mod.personal.visit_stats()
+    assert st["all"] == 1 and st["days"][-1]["n"] == 1 and st["week_back"] == 0
+
+
+def asyncio_run(coro):
+    import asyncio
+
+    return asyncio.run(coro)
+
+
+def test_russian_interface(client, monkeypatch):
+    c, app_mod = client
+    r = c.get("/lang/ru?next=/news", follow_redirects=False)
+    assert r.status_code == 303 and r.headers["location"] == "/news" and r.cookies["ws_lang"] == "ru"
+    c.cookies.clear()
+    c.cookies.set("ws_lang", "ru")
+    home = c.get("/").text
+    assert '<html lang="ru">' in home and "Что произошло в мире сегодня?" in home and ">Санкции<" in home
+    assert "Bugun dunyoda" not in home
+    assert "Этот раздел пока только на узбекском." in c.get("/risk").text
+    assert app_mod.analyze.display_name("UZB", "ru") == "Узбекистан"
+    g = app_mod._top_groups(48, 1)[0]
+    app_mod.db.cache_put(f"explain:{app_mod.explain.key(g)}", {"emoji": "🤝", "title": "Ikki davlat kelishdi",
+                         "simple": "Gaplashdi.", "why": "", "title_ru": "Две страны договорились",
+                         "simple_ru": "Поговорили.", "why_ru": "", "ai": True})  # fmt: skip
+    app_mod._FEED_CACHE.clear()
+    page = c.get(f"/story/{g[0]['id']}").text
+    assert "Две страны договорились" in page and "Ikki davlat kelishdi" not in page
+    c.cookies.clear()
+    c.cookies.set("ws_lang", "uz")
+    assert "Ikki davlat kelishdi" in c.get(f"/story/{g[0]['id']}").text

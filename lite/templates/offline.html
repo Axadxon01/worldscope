@@ -1,0 +1,7 @@
+{% extends "base.html" %}
+{% block title %}Internet yo'q · WorldScope{% endblock %}
+{% block body %}
+<div class="empty"><h1>{{ _("📡 Internet yo'q") }}</h1>
+  <p>{{ _("Ulanish tiklangach, sahifa yangilanadi. Avval ochgan sahifalaringiz internetsiz ham ochiladi.") }}</p>
+  <p><button type="button" onclick="location.reload()">{{ _("Qayta urinish") }}</button></p></div>
+{% endblock %}

@@ -8,42 +8,42 @@
 {% endblock %}
 {% block body %}
 {% if news and (news.big or news.mine) %}
-<section class="since" aria-label="Oxirgi tashrifingizdan beri">
+<section class="since" aria-label="{{ _("Oxirgi tashrifingizdan beri") }}">
   <span class="wave" aria-hidden="true">👋</span>
-  <div><b>Qaytganingiz bilan!</b> Oxirgi tashrifingizdan beri ({{ news.ago }}):
-    <b>{{ news.big }}</b> ta muhim voqea{% if news.mine %}, shundan <b>{{ news.mine }}</b> tasi sizni qiziqtirgan mavzularda{% endif %}.
-    Yangilari <span class="new">Yangi</span> belgisi bilan.</div>
+  <div><b>{{ _("Qaytganingiz bilan!") }}</b> {{ _("Oxirgi tashrifingizdan beri") }} ({{ news.ago }}):
+    <b>{{ news.big }}</b> {{ _("ta muhim voqea") }}{% if news.mine %}, {{ _("shundan") }} <b>{{ news.mine }}</b> {{ _("tasi sizni qiziqtirgan mavzularda") }}{% endif %}.
+    {{ _("Yangilari") }} <span class="new">{{ _("Yangi") }}</span> {{ _("belgisi bilan.") }}</div>
 </section>
 {% endif %}
 
 {% if empty_db %}
-<div class="empty"><h2>Yangiliklar hali yig'ilmagan</h2>
+<div class="empty"><h2>{{ _("Yangiliklar hali yig'ilmagan") }}</h2>
   <p>Dastur ishga tushganda manbalardan avtomatik yig'adi; bu 1–2 daqiqa oladi. Sahifani biroz kutib yangilang.</p></div>
 {% else %}
 
 <section class="today" aria-labelledby="today-h">
-  <h1 id="today-h">Bugun dunyoda nima bo'ldi?</h1>
-  <p class="lede">Eng ko'p nashr yozgan voqealar — oddiy tilda, 3 daqiqada.</p>
+  <h1 id="today-h">{{ _("Bugun dunyoda nima bo'ldi?") }}</h1>
+  <p class="lede">{{ _("Eng ko'p nashr yozgan voqealar — oddiy tilda, 3 daqiqada.") }}</p>
   {% if today %}{{ story(today[0], lines.get(ekey(today[0])), lead=True, fresh=is_new(today[0], since)) }}{% endif %}
   <div class="grid2">{% for g in today[1:] %}{{ story(g, lines.get(ekey(g)), fresh=is_new(g, since)) }}{% endfor %}</div>
 </section>
 
 <section class="foryou" aria-labelledby="foryou-h">
-  <div class="sechead"><h2 id="foryou-h">Siz uchun</h2>
-    <button type="button" class="ghost small" data-open-prefs>⚙ Qiziqishlarni tanlash</button></div>
+  <div class="sechead"><h2 id="foryou-h">{{ _("Siz uchun") }}</h2>
+    <button type="button" class="ghost small" data-open-prefs>{{ _("⚙ Qiziqishlarni tanlash") }}</button></div>
   {% if my_countries or my_topics %}
-  <p class="lede">Siz tanlaganlar:
+  <p class="lede">{{ _("Siz tanlaganlar:") }}
     {% for c in my_countries %}<a class="chip" href="/country/{{ c }}">{{ uzname(c) }}</a>{% endfor %}
-    {% for t in my_topics %}<span class="chip">{{ TOPIC[t][0] }} {{ TOPIC[t][1] }}</span>{% endfor %}</p>
+    {% for t in my_topics %}<span class="chip">{{ TOPIC[t][0] }} {{ _(TOPIC[t][1]) }}</span>{% endfor %}</p>
   {% if foryou %}
   <div class="grid2">{% for g in foryou %}{{ story(g, lines.get(ekey(g)), fresh=is_new(g, since)) }}{% endfor %}</div>
-  {% else %}<p class="muted">Bugun siz tanlagan davlat va mavzular bo'yicha yuqoridagilardan boshqa yangi voqea yo'q.</p>{% endif %}
+  {% else %}<p class="muted">{{ _("Bugun siz tanlagan davlat va mavzular bo'yicha yuqoridagilardan boshqa yangi voqea yo'q.") }}</p>{% endif %}
   {% else %}
   <div class="cta">
     <span class="big" aria-hidden="true">🎯</span>
-    <div><b>Sizni qaysi davlatlar va mavzular qiziqtiradi?</b>
-      <p class="muted small">Tanlang — shu yerda faqat siz uchun muhim voqealar chiqadi va keyingi safar nima yangi ekanini aytamiz.</p></div>
-    <button type="button" data-open-prefs>Tanlash</button>
+    <div><b>{{ _("Sizni qaysi davlatlar va mavzular qiziqtiradi?") }}</b>
+      <p class="muted small">{{ _("Tanlang — shu yerda faqat siz uchun muhim voqealar chiqadi va keyingi safar nima yangi ekanini aytamiz.") }}</p></div>
+    <button type="button" data-open-prefs>{{ _("Tanlash") }}</button>
   </div>
   {% endif %}
 </section>
@@ -53,17 +53,16 @@
 <section class="hero" aria-labelledby="hero-h">
   <div class="globewrap"><canvas class="globe" id="heroglobe" aria-label="Dunyo globusi: davlatlar orasidagi asosiy aloqalar"></canvas></div>
   <div>
-    <h2 id="hero-h">Dunyo xaritasi</h2>
+    <h2 id="hero-h">{{ _("Dunyo xaritasi") }}</h2>
     {% if hero.links %}
-      <p class="muted small">Davlatlar o'rtasida hozir nima bo'layotgani. Rasmchani bosing — oddiy tilda tushuntiradi.
-        Istalgan davlatni bosing — uning boshqa davlatlar bilan barcha aloqalari ochiladi.</p>
+      <p class="muted small">{{ _("Davlatlar o'rtasida hozir nima bo'layotgani. Rasmchani bosing — oddiy tilda tushuntiradi.") }}
+        {{ _("Istalgan davlatni bosing — uning boshqa davlatlar bilan barcha aloqalari ochiladi.") }}</p>
       {% set W = {"conflict": "⚔️ Urush", "trade": "🚢 Savdo", "diplomacy": "🤝 Muzokara", "cooperation": "🏗️ Hamkorlik", "aid": "📦 Yordam", "pressure": "✋ Bosim", "rivalry": "♟️ Raqobat", "dependence": "⛓️ Qaramlik"} %}
       <ul>{% for l in hero.links[:6] %}<li data-i="{{ loop.index0 }}"><i class="t-{{ l.type }}"></i><span class="kw">{{ W.get(l.type, l.type) }}</span> <b>{{ hero.names.get(l.from, l.from) }} → {{ hero.names.get(l.to, l.to) }}</b> — {{ l.bubble or l.title }}</li>{% endfor %}</ul>
     {% else %}
-      <p class="muted small">Bugungi xarita hali tayyorlanmoqda. Hozircha globusda yangiliklarda tez-tez birga tilga olingan
-        davlatlar kulrang chiziq bilan bog'langan. Istalgan davlatni bosing — uning aloqalari ochiladi.</p>
+      <p class="muted small">{{ _("Bugungi xarita hali tayyorlanmoqda. Hozircha globusda yangiliklarda tez-tez birga tilga olingan davlatlar kulrang chiziq bilan bog'langan. Istalgan davlatni bosing — uning aloqalari ochiladi.") }}</p>
     {% endif %}
-    <p><a class="btnlink" href="/map">To'liq globus →</a></p>
+    <p><a class="btnlink" href="/map">{{ _("To'liq globus →") }}</a></p>
   </div>
 </section>
 <script>
@@ -81,22 +80,24 @@
 </script>
 {% endif %}
 
-<section class="ctas" aria-label="Davom etish">
-  <a class="ctacard" href="/news"><span aria-hidden="true">📰</span><b>Barcha yangiliklar</b><small>Bugun {{ total }} ta voqea · qidirish va saralash</small></a>
-  <a class="ctacard" href="/quiz"><span aria-hidden="true">🧩</span><b>Haftalik test</b><small>5 ta savol: bu hafta dunyoni qanchalik kuzatdingiz?</small></a>
-  {% if bot %}<a class="ctacard tg" href="https://t.me/{{ bot }}" target="_blank" rel="noopener"><span aria-hidden="true">📬</span><b>Har kuni ertalab Telegramda</b><small>Kunning asosiy voqealari — @{{ bot }}</small></a>
-  {% else %}<a class="ctacard" href="/watch"><span aria-hidden="true">📌</span><b>Kuzatuv ro'yxati</b><small>Davlatlarni kuzating — o'zgarsa xabar beramiz</small></a>{% endif %}
+<section class="ctas" aria-label="{{ _("Davom etish") }}">
+  <a class="ctacard" href="/news"><span aria-hidden="true">📰</span><b>{{ _("Barcha yangiliklar") }}</b><small>{{ _("Bugun") }} {{ total }} {{ _("ta voqea · qidirish va saralash") }}</small></a>
+  <a class="ctacard" href="/quiz"><span aria-hidden="true">🧩</span><b>{{ _("Haftalik test") }}</b><small>{{ _("5 ta savol: bu hafta dunyoni qanchalik kuzatdingiz?") }}</small></a>
+  {% if bot %}<a class="ctacard tg" href="https://t.me/{{ bot }}" target="_blank" rel="noopener"><span aria-hidden="true">📬</span><b>{{ _("Har kuni ertalab Telegramda") }}</b><small>{{ _("Kunning asosiy voqealari —") }} @{{ bot }}</small></a>
+  {% endif %}
+  <div class="ctacard"><span aria-hidden="true">🔔</span><b>{{ _("Ertalabki bildirishnoma") }}</b><small>{{ _("Har kuni ertalab siz uchun eng muhim voqea — telefoningizga.") }}</small>
+    <button type="button" class="ghost small" data-push>{{ _("🔔 Yoqish") }}</button></div>
 </section>
 
 <dialog id="prefs" aria-labelledby="prefs-h">
   <form method="post" action="/prefs">
-    <h2 id="prefs-h">Sizni nima qiziqtiradi?</h2>
-    <p class="muted">Bir nechtasini bosing. Keyin bosh sahifada "Siz uchun" bo'limida aynan shular chiqadi. Istalgan vaqt o'zgartirasiz.</p>
-    <h3>Davlatlar</h3>
+    <h2 id="prefs-h">{{ _("Sizni nima qiziqtiradi?") }}</h2>
+    <p class="muted">{{ _("Bir nechtasini bosing. Keyin bosh sahifada \"Siz uchun\" bo'limida aynan shular chiqadi. Istalgan vaqt o'zgartirasiz.") }}</p>
+    <h3>{{ _("Davlatlar") }}</h3>
     <div class="picks">{% for c in POPULAR %}<label><input type="checkbox" name="countries" value="{{ c }}" {{ 'checked' if c in my_countries }}><span>{{ uzname(c) }}</span></label>{% endfor %}</div>
-    <h3>Mavzular</h3>
-    <div class="picks">{% for k, v in TOPIC.items() %}<label><input type="checkbox" name="topics" value="{{ k }}" {{ 'checked' if k in my_topics }}><span>{{ v[0] }} {{ v[1] }}</span></label>{% endfor %}</div>
-    <div class="row end"><button type="button" class="ghost" value="skip" data-close>Keyinroq</button><button>Saqlash</button></div>
+    <h3>{{ _("Mavzular") }}</h3>
+    <div class="picks">{% for k, v in TOPIC.items() %}<label><input type="checkbox" name="topics" value="{{ k }}" {{ 'checked' if k in my_topics }}><span>{{ v[0] }} {{ _(v[1]) }}</span></label>{% endfor %}</div>
+    <div class="row end"><button type="button" class="ghost" value="skip" data-close>{{ _("Keyinroq") }}</button><button>{{ _("Saqlash") }}</button></div>
   </form>
 </dialog>
 <script>
