@@ -62,17 +62,16 @@
           </div>
           <script>const TIMELINE = {{ timeline|map(attribute='id')|list|tojson }}, TDATES = {{ timeline|map(attribute='created')|list|tojson }};</script>
           {% endif %}
-          <p class="muted small">{{ current.created[:16].replace('T',' ') }} UTC · {{ current.hours }} soat · {{ current.model }}{% if current.focus %} · {{ current.focus }}{% endif %}</p>
+          <p class="muted small">{{ current.created[:10] }} holati{% if is_admin(request) %} · {{ current.hours }} soat · {{ current.model }}{% endif %}{% if current.focus %} · {{ current.focus }}{% endif %}</p>
           {% if current.data.summary %}<p class="summary">{{ current.data.summary }}</p>{% endif %}
           <ol class="linklist" id="linklist"></ol>
-        {% elif ai %}
-          <p>Hali AI xaritasi yo'q. Pastdagi tugma bilan yarating: AI yangiliklardan davlatlar orasidagi
-            muhim bog'liqliklarni topib, har biriga "nima uchun" degan savolga javob yozadi.</p>
         {% else %}
-          <p class="warn">AI o'chiq. Hozir faqat yangiliklarda birga tilga olingan davlatlar kulrang chiziq bilan ko'rsatilgan.</p>
+          <p>Bugungi xarita hali tayyorlanmoqda — u har kuni avtomatik chiziladi. Hozircha yangiliklarda birga tilga olingan
+            davlatlar kulrang chiziq bilan ko'rsatilgan. "🏳️ Davlat" tugmasi bilan istalgan davlatning aloqalarini ko'ring.</p>
         {% endif %}
       </div>
 
+      {% if is_admin(request) %}
       <form method="post" action="/map" class="mapform" id="mapform">
         <div class="row">
           <select name="hours" title="Davr">
@@ -84,6 +83,7 @@
         <button {{ 'disabled' if not ai }} id="gen">{{ 'Xaritani yangilash' if current else 'AI xaritasini yaratish' }}</button>
         <p class="muted small" id="genwait" hidden>AI yangiliklarni o'qiyapti, 20–60 soniya…</p>
       </form>
+      {% endif %}
 
       <div class="toggles small">
         <label><input type="checkbox" id="showBubbles" checked> Bulutchalar</label>
@@ -92,7 +92,7 @@
       </div>
       <div class="legend small" id="legend"></div>
 
-      {% if maps|length > 1 %}
+      {% if maps|length > 1 and is_admin(request) %}
       <details class="small"><summary>Oldingi xaritalar</summary>
         <ul class="plain">{% for m in maps %}
           <li><a href="/map?id={{ m.id }}" class="{{ 'on' if current and current.id == m.id }}">{{ m.created[:16].replace('T',' ') }}</a>
@@ -436,6 +436,7 @@ else { try { document.getElementById("tradeiso").value = "UZB"; } catch (e) {} }
 setMode(mode);
 
 document.getElementById("collapse").onclick = () => document.getElementById("panel").classList.toggle("collapsed");
-document.getElementById("mapform").onsubmit = () => { document.getElementById("gen").disabled = true; document.getElementById("genwait").hidden = false; };
+const mapform = document.getElementById("mapform");
+if (mapform) mapform.onsubmit = () => { document.getElementById("gen").disabled = true; document.getElementById("genwait").hidden = false; };
 </script>
 {% endblock %}

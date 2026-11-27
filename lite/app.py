@@ -6,6 +6,7 @@ Run:  uvicorn app:app --reload        (from the lite/ folder)
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import logging
 import os
@@ -36,6 +37,7 @@ import explain
 import facts
 import framing
 import pairs
+import personal
 import predictions
 import relations
 import risk
@@ -313,7 +315,7 @@ async def access_gate(request: Request, call_next):
     path = request.url.path
     machine = path.startswith(MACHINE_PATHS)
     request.state.user = None
-    request.state.mode = "open"
+    request.state.mode = "public"  # login page, static files, machines: nobody is known, nobody is admin
     if not machine and not path.startswith(OPEN_PATHS):
         mode, user = await asyncio.to_thread(_user_for, request)
         request.state.mode, request.state.user = mode, user
@@ -437,6 +439,7 @@ templates.env.globals.update(
     db_where=db.describe,
     asset=asset,
     uzname=analyze.display_name,
+    is_admin=lambda request: _is_admin(request),  # _is_admin is defined further down
     glossary_json=Markup(json.dumps(explain.GLOSSARY, ensure_ascii=False).replace("</", "<\\/")),
 )
 
@@ -513,8 +516,121 @@ def _feed_data(h: int, q: str, kind: str, cat: str, country: str) -> tuple[list,
     return arts, ov, hero
 
 
+def _pubs(group: list[dict]) -> int:
+    return len({a["publisher"] for a in group})
+
+
+def _prefs(request: Request) -> tuple[list[str], list[str]]:
+    """The visitor's interests: the cookie set by "Sizni nima qiziqtiradi?" plus followed countries."""
+    countries, topics = personal.parse_prefs(request.cookies.get(personal.PREFS_COOKIE))
+    for r in db.rows("SELECT value FROM watch_items WHERE user_id = ? AND kind = 'country'", (_uid(request),)):
+        if r["value"] not in countries:
+            countries.append(r["value"])
+    return countries, topics
+
+
+def _cookie(resp: Response, name: str, value: str, request: Request) -> None:
+    resp.set_cookie(name, value, max_age=personal.YEAR, httponly=True, samesite="lax",
+                    secure=request.url.scheme == "https")  # fmt: skip
+
+
 @app.get("/", response_class=HTMLResponse)
-def feed(
+def home(request: Request):
+    """Today in a few minutes: the big stories, the visitor's own, what is new since they last came."""
+    if {"q", "kind", "cat", "country", "view", "hours"} & set(request.query_params):  # old links to the full feed
+        return RedirectResponse("/news?" + request.url.query, 301)
+    arts, ov, hero = _feed_data(24, "", "", "", "")
+    groups = ov["groups"]
+    big = [g for g in groups if _pubs(g) >= 2]
+    today = (big or groups)[:7]
+    countries, topics = _prefs(request)
+    since, prev_cookie = personal.visit(
+        request.cookies.get(personal.LAST_COOKIE), request.cookies.get(personal.PREV_COOKIE)
+    )
+    taken = {id(g) for g in today}
+    cs, ts = set(countries), set(topics)
+    mine = [g for g in groups if (cs or ts) and personal.matches(g, cs, ts)]
+    foryou = [g for g in mine if id(g) not in taken][:6]
+    news = None
+    if since:
+        news = {
+            "ago": personal.ago_words(since),
+            "big": sum(personal.is_new(g, since) for g in big),
+            "mine": sum(personal.is_new(g, since) for g in mine),
+        }
+    resp = templates.TemplateResponse(
+        request,
+        "home.html",
+        {
+            "hero": hero,
+            "hero_json": Markup(json.dumps(hero, ensure_ascii=False).replace("</", "<\\/")) if hero else "",
+            "today": today, "foryou": foryou, "since": since, "news": news,
+            "lines": explain.for_groups(today + foryou), "ekey": explain.key, "pubs": _pubs,
+            "is_new": personal.is_new, "my_countries": countries, "my_topics": topics,
+            "ask_prefs": not (countries or topics), "POPULAR": personal.POPULAR, "TOPIC": explain.TOPIC,
+            "bot": telegram_bot.username(), "total": len(groups),
+            "empty_db": not arts and db.one("SELECT COUNT(*) n FROM articles")["n"] == 0,
+        },
+    )  # fmt: skip
+    _cookie(resp, personal.LAST_COOKIE, datetime.now(UTC).isoformat(timespec="seconds"), request)
+    if prev_cookie:
+        _cookie(resp, personal.PREV_COOKIE, prev_cookie, request)
+    return resp
+
+
+@app.post("/prefs")
+def save_prefs(request: Request, countries: list[str] = Form([]), topics: list[str] = Form([])):  # noqa: B008
+    value = personal.dump_prefs(countries, topics)
+    if request.state.user:  # an account follows the chosen countries too, so alerts and the digest know them
+        for c in personal.parse_prefs(value)[0]:
+            with contextlib.suppress(watch.WatchError):  # not a sovereign country, or the list is full
+                watch.add(request.state.user["id"], watch.COUNTRY, c)
+    resp = RedirectResponse("/", 303)
+    _cookie(resp, personal.PREFS_COOKIE, value, request)
+    return resp
+
+
+TOOLS = [  # (path, icon, name, what it answers, admin only)
+    ("/news", "📰", "Barcha yangiliklar", "Hamma xabarlar: qidirish, mavzu va davlat bo'yicha saralash.", False),
+    ("/pair", "⚖️", "Ikki davlat", "Ikki davlat o'rtasida nima bo'lyapti va keyin nima bo'lishi mumkin?", False),
+    ("/risk", "🧭", "Xavf indeksi", "Qaysi davlat bilan ishlash xavfliroq? 0 dan 100 gacha ball.", False),
+    ("/sanctions", "📁", "Sanksiyalar", "Bu kompaniya yoki odam qora ro'yxatdami?", False),
+    ("/debt", "💰", "Qarzlar", "Davlat kimga va qancha qarzdor?", False),
+    ("/framing", "🗞️", "OAV talqini", "Bitta voqeani turli davlatlar gazetalari qanday yozyapti?", False),
+    ("/predictions", "🎯", "Bashoratlar", "AI bashoratlari qanchalik to'g'ri chiqdi? O'zingiz ham ovoz bering.", False),
+    ("/quiz", "🧩", "Haftalik test", "5 ta savol: bu hafta dunyoni qanchalik kuzatdingiz?", False),
+    ("/brief", "✒️", "AI tahlil", "Tanlagan mavzuingiz bo'yicha manbali qisqa tahlil.", False),
+    ("/sources", "📡", "Manbalar", "Yangiliklar qayerdan yig'iladi; manba qo'shish va o'chirish.", True),
+]
+
+
+@app.get("/tools", response_class=HTMLResponse)
+def tools_page(request: Request):
+    items = [t for t in TOOLS if _is_admin(request) or not t[4]]
+    return templates.TemplateResponse(request, "tools.html", {"items": items})
+
+
+@app.get("/quiz", response_class=HTMLResponse)
+def quiz_page(request: Request):
+    """Five questions from this week's maps; the answers are checked in the browser."""
+    since = (datetime.now(UTC) - timedelta(days=7)).isoformat()
+    links, seen = [], set()
+    for r in db.rows("SELECT data FROM maps WHERE created >= ? ORDER BY created DESC LIMIT 30", (since,)):
+        for x in json.loads(r["data"]).get("links", []):
+            k = (x.get("from"), x.get("to"), x.get("type"))
+            if k not in seen:
+                seen.add(k)
+                links.append(x)
+    week = personal.week_key()
+    qs = personal.quiz(links, week)
+    return templates.TemplateResponse(request, "quiz.html", {"qs": qs, "week": week})
+
+
+NEWS_PAGE = 30
+
+
+@app.get("/news", response_class=HTMLResponse)
+def news_page(
     request: Request,
     q: str = "",
     kind: str = "",
@@ -522,26 +638,27 @@ def feed(
     country: str = "",
     hours: str = "24",
     view: str = "stories",
+    page: int = 1,
 ):
     h = _hours(hours)
-    arts, ov, hero = _feed_data(h, q.strip(), kind, cat, country)
+    arts, ov, _hero = _feed_data(h, q.strip(), kind, cat, country)
+    page = max(1, page)
+    items = ov["groups"] if view != "list" else arts
+    pages = max(1, -(-len(items) // NEWS_PAGE))
+    page = min(page, pages)
+    shown = items[(page - 1) * NEWS_PAGE : page * NEWS_PAGE]
     return templates.TemplateResponse(
         request,
-        "feed.html",
+        "news.html",
         {
-            "hero": hero,
-            "simple": explain.for_groups(ov["groups"][:80]),
-            "top3": [g for g in ov["groups"] if len({a["publisher"] for a in g}) >= 2][:3]
-            if not (q or kind or cat or country)
-            else [],
+            "lines": explain.for_groups(shown) if view != "list" else {},
             "ekey": explain.key,
-            "hero_json": Markup(json.dumps(hero, ensure_ascii=False).replace("</", "<\\/")) if hero else "",
-            "arts": arts[:300],
+            "shown": shown, "page": page, "pages": pages, "count": len(items),
             "ov": ov,
             "f": {"q": q, "kind": kind, "cat": cat, "country": country, "hours": h, "view": view},
             "empty_db": db.one("SELECT COUNT(*) n FROM articles")["n"] == 0,
         },
-    )
+    )  # fmt: skip
 
 
 @app.post("/refresh")
@@ -1412,7 +1529,7 @@ async def job_explain() -> dict:
     """A one-sentence plain-Uzbek explanation for each of the day's big stories."""
     if not analyze.ai_available():
         return {"skipped": "AI kaliti yo'q"}
-    groups = (await asyncio.to_thread(_top_groups))[: explain.PER_RUN]
+    groups = (await asyncio.to_thread(_top_groups))[:80]  # write() takes the first PER_RUN still unexplained
     done = await run_ai("oddiy izohlar", explain.write, groups)
     return {"explained": len(done)}
 
@@ -1478,7 +1595,7 @@ def _uid(request: Request) -> int:
 
 def _is_admin(request: Request) -> bool:
     u = getattr(request.state, "user", None)
-    return (u and u["role"] == "admin") or getattr(request.state, "mode", "open") == "open"
+    return bool(u and u["role"] == "admin") or getattr(request.state, "mode", "public") == "open"
 
 
 def _https(request: Request) -> bool:
@@ -1661,7 +1778,8 @@ async def _run_one(job: str) -> None:
 
 
 BACKUP_TABLES = ["users", "watch_items", "alerts", "pairs", "pair_history", "maps", "briefs", "debt_reports",
-                 "framings", "predictions", "digests", "tg_subscribers", "tg_follows", "sources", "meta"]  # fmt: skip
+                 "framings", "predictions", "prediction_votes", "digests", "tg_subscribers", "tg_follows", "sources",
+                 "meta"]  # fmt: skip
 
 
 @app.get("/admin/export")
@@ -1726,6 +1844,7 @@ async def watch_page(request: Request, msg: str = "", error: str = ""):
         except Exception:
             log.warning("risk index unavailable for the watch page")
     items = await asyncio.to_thread(watch.view, uid, rows, sanctions.stats())
+    mine = await asyncio.to_thread(_prefs, request)
     return templates.TemplateResponse(
         request,
         "watch.html",
@@ -1734,6 +1853,7 @@ async def watch_page(request: Request, msg: str = "", error: str = ""):
             "options": pairs.country_options(), "TIERS": pairs.TIERS, "name": analyze.display_name,
             "linked": bool(request.state.user and request.state.user.get("tg_chat")),
             "signed": bool(request.state.user), "lists": sanctions.loaded(), "match": sanctions.match_label,
+            "my_countries": mine[0], "my_topics": mine[1], "TOPIC": explain.TOPIC, "bot": telegram_bot.username(),
         },
     )  # fmt: skip
 
@@ -1858,8 +1978,49 @@ def predictions_page(request: Request, show: str = "all", msg: str = "", error: 
             "st": predictions.stats(), "rows": predictions.all_rows(show if show in ("open", "done") else ""),
             "show": show, "STATUS": predictions.STATUS_UZ, "name": analyze.display_name, "msg": msg, "error": error,
             "ai": analyze.ai_available(), "now": collectors.now_iso(), "per_day": PRED_PER_DAY,
+            "votes": _votes(request),
         },
     )  # fmt: skip
+
+
+def _votes(request: Request) -> dict[int, dict]:
+    """Per prediction: how many visitors said yes / no, and what this visitor said."""
+    voter, _ = _voter(request)
+    out: dict[int, dict] = {}
+    for r in db.rows("SELECT pid, vote, COUNT(*) AS n FROM prediction_votes GROUP BY pid, vote"):
+        out.setdefault(r["pid"], {"yes": 0, "no": 0, "mine": None})["yes" if r["vote"] else "no"] += r["n"]
+    for r in db.rows("SELECT pid, vote FROM prediction_votes WHERE voter = ?", (voter,)):
+        out.setdefault(r["pid"], {"yes": 0, "no": 0, "mine": None})["mine"] = "yes" if r["vote"] else "no"
+    return out
+
+
+def _voter(request: Request) -> tuple[str, str | None]:
+    """Who is voting: the account, else a random id kept in a cookie (returned when it is new)."""
+    if request.state.user:
+        return f"u{request.state.user['id']}", None
+    vid = request.cookies.get("ws_vid", "")
+    if re.fullmatch(r"[a-f0-9]{16}", vid):
+        return f"v{vid}", None
+    vid = secrets.token_hex(8)
+    return f"v{vid}", vid
+
+
+@app.post("/predictions/{pid}/vote")
+def predictions_vote(request: Request, pid: int, vote: str = Form("")):
+    p = db.one("SELECT id, status FROM predictions WHERE id = ?", (pid,))
+    if not p or p["status"] != "open" or vote not in ("yes", "no"):
+        return RedirectResponse("/predictions", 303)
+    voter, new_vid = _voter(request)
+    with db.tx() as c:
+        c.execute(
+            "INSERT INTO prediction_votes (pid, voter, vote, created) VALUES (?,?,?,?) "
+            "ON CONFLICT (pid, voter) DO UPDATE SET vote = excluded.vote, created = excluded.created",
+            (pid, voter, 1 if vote == "yes" else 0, collectors.now_iso()),
+        )
+    resp = RedirectResponse(f"/predictions#p{pid}", 303)
+    if new_vid:
+        _cookie(resp, "ws_vid", new_vid, request)
+    return resp
 
 
 @app.post("/predictions/{pid}/check")

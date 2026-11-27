@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block title %}Haftalik test · WorldScope Lite{% endblock %}
+{% block body %}
+<header class="countryhead"><h1>🧩 Haftalik test</h1></header>
+{% if qs|length >= 3 %}
+<p class="lede">Bu haftaning dunyo xaritasidan {{ qs|length }} ta savol. Javobni bosing — darhol to'g'ri yoki noto'g'ri ekanini va sababini ko'rasiz.</p>
+<ol class="quiz" id="quiz" data-week="{{ week }}">
+  {% for q in qs %}
+  <li data-answer="{{ q.answer }}">
+    <p class="q">{{ q.q }}</p>
+    <div class="opts">{% for o in q.options %}<button type="button" class="ghost" data-iso="{{ o.iso }}">{{ o.name }}</button>{% endfor %}</div>
+    <p class="exp" hidden>💡 {{ q.explain }}</p>
+  </li>
+  {% endfor %}
+</ol>
+<div class="score" id="score" hidden></div>
+<script>
+(function () {
+  const box = document.getElementById("quiz"), key = "ws-quiz-" + box.dataset.week, items = [...box.children];
+  let saved = {};
+  try { saved = JSON.parse(localStorage.getItem(key) || "{}"); } catch (e) {}
+  function mark(li, iso) {
+    const ok = iso === li.dataset.answer;
+    li.querySelectorAll("button").forEach(b => {
+      b.disabled = true;
+      if (b.dataset.iso === li.dataset.answer) b.classList.add("right");
+      else if (b.dataset.iso === iso) b.classList.add("wrong");
+    });
+    li.querySelector(".exp").hidden = false;
+    li.classList.add(ok ? "ok" : "no");
+  }
+  function total() {
+    const done = Object.keys(saved).length; if (done < items.length) return;
+    const right = items.filter((li, i) => saved[i] === li.dataset.answer).length;
+    const s = document.getElementById("score"); s.hidden = false;
+    s.innerHTML = `<b>${right} / ${items.length}</b> — ` + (right === items.length ? "Ajoyib! Siz dunyoni zo'r kuzatasiz 🏆"
+      : right >= items.length / 2 ? "Yaxshi natija! Keyingi hafta yana urinib ko'ring 👍" : "Bosh sahifadagi qisqa yangiliklarni o'qib boring — keyingi hafta oson bo'ladi 🙂")
+      + ` <a href="/">Bugungi yangiliklar →</a>`;
+  }
+  items.forEach((li, i) => {
+    if (saved[i]) mark(li, saved[i]);
+    li.querySelectorAll("button").forEach(b => b.onclick = () => {
+      saved[i] = b.dataset.iso; mark(li, b.dataset.iso);
+      try { localStorage.setItem(key, JSON.stringify(saved)); } catch (e) {}
+      total();
+    });
+  });
+  total();
+})();
+</script>
+{% else %}
+<div class="empty"><h2>Bu haftaning testi hali tayyor emas</h2>
+  <p>Savollar haftaning dunyo xaritalaridan tuziladi. Xarita har kuni avtomatik yangilanadi — bir-ikki kundan keyin qayting.</p>
+  <p><a href="/">Bugungi yangiliklar →</a></p></div>
+{% endif %}
+{% endblock %}

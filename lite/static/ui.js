@@ -94,4 +94,12 @@
       document.querySelectorAll("details[data-was]").forEach(d => { d.open = d.dataset.was === "1"; d.removeAttribute("data-was"); });
     }, 500);
   }));
+
+  // Share a story: the phone's own share sheet, else Telegram's share page
+  document.addEventListener("click", e => {
+    const b = e.target.closest?.("button.share"); if (!b) return;
+    const title = b.dataset.title, url = b.dataset.url, text = b.dataset.text + " — WorldScope orqali";
+    if (navigator.share) { navigator.share({title, text, url}).catch(() => {}); return; }
+    window.open("https://t.me/share/url?url=" + encodeURIComponent(url) + "&text=" + encodeURIComponent(text), "_blank", "noopener");
+  });
 })();

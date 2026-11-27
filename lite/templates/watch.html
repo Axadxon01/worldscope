@@ -1,6 +1,16 @@
 {% extends "base.html" %}
-{% block title %}Kuzatuv ro'yxati · WorldScope Lite{% endblock %}
+{% block title %}Mening sahifam · WorldScope Lite{% endblock %}
 {% block body %}
+<h1>Mening sahifam</h1>
+<section class="card mine">
+  <h3>🎯 Qiziqishlarim</h3>
+  {% if my_countries or my_topics %}
+  <p>{% for c in my_countries %}<a class="chip" href="/country/{{ c }}">{{ uzname(c) }}</a>{% endfor %}
+    {% for t in my_topics %}<span class="chip">{{ TOPIC[t][0] }} {{ TOPIC[t][1] }}</span>{% endfor %}</p>
+  {% else %}<p class="muted">Hali tanlanmagan. Tanlasangiz, bosh sahifada "Siz uchun" bo'limi paydo bo'ladi.</p>{% endif %}
+  <p class="row"><a class="btnlink" href="/#prefs">Qiziqishlarni o'zgartirish</a>
+    {% if bot %}<a class="btnlink ghostlink" href="https://t.me/{{ bot }}" target="_blank" rel="noopener">📬 Telegramda har kuni ertalab olish</a>{% endif %}</p>
+</section>
 <h2>Kuzatuv ro'yxati</h2>
 {% if msg %}<p class="ok">{{ msg }}</p>{% endif %}
 {% if error %}<p class="warn">{{ error }}</p>{% endif %}

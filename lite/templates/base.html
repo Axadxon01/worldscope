@@ -12,24 +12,21 @@
 {% block head %}{% endblock %}
 </head>
 <body>
-{% include "_intro.html" %}
-<script src="{{ asset('intro.js') }}"></script>
 {% set user = request.state.user if request.state and request.state.user is defined else none %}
-{% set main_items = [("/", "📰", "Yangiliklar"), ("/map", "🌐", "Globus"), ("/country", "🏳️", "Davlatlar"), ("/pair", "⚖️", "Ikki davlat"),
-                     ("/risk", "🧭", "Xavf indeksi"), ("/sanctions", "📁", "Sanksiyalar"), ("/watch", "📌", "Kuzatuv")] %}
-{% set more_items = [("/debt", "💰", "Qarzlar"), ("/framing", "🗞️", "OAV talqini"), ("/predictions", "🎯", "Bashoratlar"),
-                     ("/brief", "✒️", "AI tahlil"), ("/sources", "📡", "Manbalar")] %}
+{% set admin = is_admin(request) %}
 {% set path = request.url.path %}
+{% if path == "/" %}{% include "_intro.html" %}
+<script src="{{ asset('intro.js') }}"></script>{% endif %}
+{% set tool_paths = ["/tools", "/news", "/pair", "/risk", "/sanctions", "/debt", "/framing", "/predictions", "/brief", "/quiz", "/sources"] %}
+{% set main_items = [("/", "📰", "Bugun"), ("/map", "🌐", "Globus"), ("/country", "🏳️", "Davlatlar"), ("/tools", "🧰", "Tahlil"), ("/watch", "📌", "Mening")] %}
+{% macro is_on(href) %}{{ 'on' if path == href or (href != '/' and path.startswith(href + '/')) or (href == '/tools' and path in tool_paths) }}{% endmacro %}
 <header class="top">
   <a class="brand" href="/"><span class="crest" aria-hidden="true">⚜</span>World<b>Scope</b></a>
   <nav id="mainnav" aria-label="Bo'limlar">
-    {% for href, icon, label in main_items %}<a href="{{ href }}" class="{{ 'on' if path == href or (href != '/' and path.startswith(href + '/')) }}"><span class="ni" aria-hidden="true">{{ icon }}</span>{{ label }}</a>{% endfor %}
-    <details class="more">
-      <summary class="{{ 'on' if path in more_items|map(attribute=0)|list }}">Ko'proq ▾</summary>
-      <div class="menu">{% for href, icon, label in more_items %}<a href="{{ href }}" class="{{ 'on' if path == href }}"><span class="ni" aria-hidden="true">{{ icon }}</span>{{ label }}</a>{% endfor %}</div>
-    </details>
+    {% for href, icon, label in main_items %}<a href="{{ href }}" class="{{ is_on(href) }}"><span class="ni" aria-hidden="true">{{ icon }}</span>{{ label }}</a>{% endfor %}
   </nav>
   <form method="post" action="/refresh" class="refresh">
+    {% if admin %}
     {% set used = ai_used_today() %}{% set left = [0, 1 - used / (ai_limit() or 1)]|max %}
     <span class="inkpot" title="Bugungi AI so'rovlari: {{ used }} / {{ ai_limit() }}{% if left <= 0 %} — siyoh tugadi, ertaga to'ldiriladi{% endif %}">
       <svg viewBox="0 0 24 28" width="18" height="21" aria-hidden="true"><path d="M6 6h12l2 4v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V10z" fill="none" stroke="currentColor" stroke-width="1.5"/>
@@ -38,7 +35,8 @@
     <span class="muted hide-s">
       {% if state.running %}Depeshalar kelmoqda…{% elif state.last_run %}Yangilandi: {{ state.last_run|ago }}{% else %}Hali yangilanmagan{% endif %}
     </span>
-    <button class="telegraph {{ 'tapping' if state.running }}" {{ 'disabled' if state.running }} title="Yangi xabarlarni olish"><span class="key" aria-hidden="true">📡</span><span class="hide-s"> Yangilash</span></button>
+    <button class="telegraph {{ 'tapping' if state.running }}" {{ 'disabled' if state.running }} title="Yangi xabarlarni olish (admin)"><span class="key" aria-hidden="true">📡</span><span class="hide-s"> Yangilash</span></button>
+    {% elif state.last_run %}<span class="muted hide-s" title="Yangiliklar har 25 daqiqada avtomatik yig'iladi">🕒 {{ state.last_run|ago }} yangilandi</span>{% endif %}
     <button type="button" class="ghost themebtn" id="themebtn" title="Tun / pergament rejimi" aria-label="Rejimni almashtirish">☾</button>
     {% if user %}
     <details class="more usermenu"><summary title="Akkaunt">👤 <span class="hide-s">{{ user.username }}</span> ▾</summary>
@@ -53,12 +51,11 @@
 </header>
 <main class="{% block mainclass %}{% endblock %}">{% block body %}{% endblock %}</main>
 <nav class="bottomnav" aria-label="Asosiy bo'limlar">
-  {% for href, icon, label in [("/", "📰", "Yangilik"), ("/map", "🌐", "Globus"), ("/country", "🏳️", "Davlat"), ("/watch", "📌", "Kuzatuv")] %}
-  <a href="{{ href }}" class="{{ 'on' if path == href or (href != '/' and path.startswith(href + '/')) }}"><span>{{ icon }}</span>{{ label }}</a>{% endfor %}
-  <button type="button" id="menubtn" aria-controls="mainnav" aria-expanded="false"><span>☰</span>Menyu</button>
+  {% for href, icon, label in main_items %}
+  <a href="{{ href }}" class="{{ is_on(href) }}"><span>{{ icon }}</span>{{ label }}</a>{% endfor %}
 </nav>
 <div id="aiwait" hidden><div class="hg" aria-hidden="true">⏳</div><p>AI o'ylayapti… <span id="secs">0</span> s</p><p class="muted small">Odatda 20–60 soniya</p></div>
-<footer>Faqat sarlavha, qisqa matn va havola saqlanadi. To'liq matn manbaning o'zida. · Ma'lumotlar: {{ db_where() }}</footer>
+<footer>WorldScope yangiliklarni o'zi yozmaydi: sarlavha, qisqa matn va havola saqlanadi, to'liq matn manbaning o'zida.{% if admin %} · Ma'lumotlar: {{ db_where() }}{% endif %}</footer>
 <script id="glossary" type="application/json">{{ glossary_json }}</script>
 <script src="{{ asset('ui.js') }}"></script>
 </body>

@@ -66,13 +66,13 @@
   <a href="/risk{{ '?c=' + detail.iso if detail }}" class="{{ 'on' if not tier }}">Barchasi</a>
   {% for t, label in TIERS.items() %}<a href="/risk?tier={{ t }}{{ '&c=' + detail.iso if detail }}" class="{{ 'on' if tier == t }}">{{ label }}</a>{% endfor %}
 </div>
-<table class="facts small-t">
+<div class="tablewrap"><table class="facts small-t risktable">
   <thead><tr><th>#</th><th>Davlat</th><th>Ball</th>{% for key, label, weight, inputs in COMPONENTS %}<th title="vazni {{ weight }}%">{{ label }}</th>{% endfor %}</tr></thead>
   <tbody>{% for r in rows %}
     <tr class="{{ 'sel' if detail and detail.iso == r.iso }}"><td>{{ r.rank or '' }}</td><td><a href="/risk?c={{ r.iso }}{{ '&tier=' ~ tier if tier }}">{{ r.name }}</a></td><td>{{ pill(r) }}</td>
       {% for c in r.components %}<td>{{ c.value|round|int if c.value is not none else '—' }}</td>{% endfor %}</tr>
   {% endfor %}</tbody>
-</table>
+</table></div>
 
 <script>
 const DATA = {{ payload }};

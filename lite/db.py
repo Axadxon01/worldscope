@@ -198,6 +198,13 @@ CREATE TABLE IF NOT EXISTS predictions (
     evidence    TEXT NOT NULL DEFAULT '[]',
     UNIQUE (ref, made, title)
 );
+CREATE TABLE IF NOT EXISTS prediction_votes (
+    pid         INTEGER NOT NULL,
+    voter       TEXT NOT NULL,           -- "u<id>" for an account, else the visitor cookie
+    vote        INTEGER NOT NULL,        -- 1 = will happen, 0 = will not
+    created     TEXT NOT NULL,
+    PRIMARY KEY (pid, voter)
+);
 CREATE TABLE IF NOT EXISTS ai_usage (
     day         TEXT PRIMARY KEY,       -- YYYY-MM-DD, UTC
     calls       INTEGER NOT NULL DEFAULT 0

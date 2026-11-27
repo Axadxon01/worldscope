@@ -1,8 +1,9 @@
 """Plain words: one short Uzbek sentence per big story that a child could follow, and a glossary.
 
-The AI writes the sentences for the most-covered stories of the day in one call (scheduled job
-"explain"); until it has, or without an AI key, a sentence is built from the story's countries and
-topic. The glossary explains the site's hard words where they appear on any page.
+The AI writes, for the most-covered stories of the day in one call (scheduled job "explain"), an
+Uzbek headline, a plain sentence and what it may mean for people in Uzbekistan. Only AI-written
+lines are shown: a guess built from tags was too often wrong, and a wrong line costs more trust than
+a missing one. The glossary explains the site's hard words where they appear on any page.
 """
 
 from __future__ import annotations
@@ -14,8 +15,8 @@ from datetime import UTC, datetime
 import analyze
 import db
 
-PER_RUN = 15
-TOPIC = {  # category → (emoji, plain words)
+PER_RUN = 24
+TOPIC = {  # category → (emoji, plain words); also the topics offered when a visitor says what interests them
     "conflict": ("⚔️", "urush yoki to'qnashuv"),
     "defense": ("🛡️", "qurol va armiya"),
     "diplomacy": ("🤝", "davlatlar o'rtasidagi muzokara"),
@@ -77,31 +78,22 @@ def stored(keys: list[str]) -> dict[str, dict]:
     return out
 
 
-def fallback(group: list[dict]) -> dict:
-    """Countries and topic in plain words, when no AI sentence exists yet."""
-    a = group[0]
-    names = [analyze.display_name(c) for c in a.get("countries", [])[:2]]
-    cats = [c for c in a.get("categories", []) if c in TOPIC]
-    emoji, topic = TOPIC[cats[0]] if cats else ("🌍", "dunyo voqeasi")
-    who = " va ".join(names) if names else "Dunyo"
-    return {"emoji": emoji, "simple": f"{who} haqida: {topic}.", "why": "", "ai": False}
-
-
 def for_groups(groups: list[list[dict]]) -> dict[str, dict]:
-    keys = [key(g) for g in groups]
-    have = stored(keys)
-    return {k: have.get(k) or fallback(g) for k, g in zip(keys, groups, strict=True)}
+    """AI lines for the groups that have one; the others are simply absent."""
+    return stored([key(g) for g in groups])
 
 
 SYSTEM = """You explain world news to someone who knows nothing about politics, in Uzbek (Latin script).
 For each numbered news story write:
+- "title": the headline translated into natural Uzbek (Latin script), at most 14 words, same facts,
+  country names in Uzbek. If the headline is already Uzbek, tidy it.
 - "simple": ONE short sentence (at most 18 words) a 10-year-old understands: who did what. Use plain
-  words, no jargon, no abbreviations; write country names in Uzbek.
-- "why": ONE short sentence on why it matters to ordinary people (prices, jobs, safety, Uzbekistan),
-  or "" if you cannot say it honestly from the headline.
+  words, no jargon, no abbreviations.
+- "why": ONE short sentence on how this may touch people living in Uzbekistan (prices, jobs, migrants
+  abroad, trade, gas, safety, the region). Write "" unless there is a real, direct link: do not invent one.
 - "emoji": one fitting emoji.
 Only use what the headline and snippet say. Return ONLY JSON:
-{"items": [{"n": 1, "simple": "...", "why": "...", "emoji": "..."}]}"""
+{"items": [{"n": 1, "title": "...", "simple": "...", "why": "...", "emoji": "..."}]}"""
 
 
 def write(groups: list[list[dict]]) -> dict[str, dict]:
@@ -128,6 +120,7 @@ def write(groups: list[list[dict]]) -> dict[str, dict]:
             continue
         k = todo[n - 1][0]
         val = {"emoji": str(it.get("emoji", "🌍")).strip()[:4] or "🌍", "simple": simple[:220],
+               "title": str(it.get("title", "")).strip()[:160],
                "why": str(it.get("why", "")).strip()[:220], "ai": True}  # fmt: skip
         db.cache_put(f"explain:{k}", val)
         out[k] = val

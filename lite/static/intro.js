@@ -1,15 +1,15 @@
 /* Opening scene: Napoleon and Kutuzov cross sabres, sparks fly, they spring apart, the globe rises
-   between them. 3.5 s, once per browser session; skipped on "reduce motion", by a click or Esc. */
+   between them. 3.5 s, once per browser (the first visit only); skipped on "reduce motion", by a click or Esc. */
 (function () {
   "use strict";
   const el = document.getElementById("intro");
   if (!el) return;
   let seen = false;
-  try { seen = sessionStorage.getItem("ws-intro") === "1"; } catch (e) { /* storage off: show it */ }
+  try { seen = localStorage.getItem("ws-intro") === "1"; } catch (e) { /* storage off: show it */ }
   if (seen || matchMedia("(prefers-reduced-motion: reduce)").matches || new URLSearchParams(location.search).has("nointro")) {
     el.remove(); return;
   }
-  try { sessionStorage.setItem("ws-intro", "1"); } catch (e) { /* ignore */ }
+  try { localStorage.setItem("ws-intro", "1"); } catch (e) { /* ignore */ }
   el.hidden = false;
   document.documentElement.classList.add("intro-on");
 
