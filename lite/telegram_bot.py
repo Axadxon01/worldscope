@@ -65,6 +65,20 @@ async def send(chat_id: str | int, text: str) -> bool:
     return bool(res.get("ok"))
 
 
+async def send_document(chat_id: str | int, filename: str, content: bytes, caption: str = "") -> bool:
+    """A file into the chat (the weekly backup goes to the administrators this way)."""
+    async with httpx.AsyncClient(timeout=httpx.Timeout(60.0)) as client:
+        r = await client.post(
+            f"https://api.telegram.org/bot{token()}/sendDocument",
+            data={"chat_id": str(chat_id), "caption": caption[:1000], "parse_mode": "HTML"},
+            files={"document": (filename, content)},
+        )
+    ok = r.headers.get("content-type", "").startswith("application/json") and r.json().get("ok")
+    if not ok:
+        log.warning("telegram sendDocument failed: %s", r.status_code)
+    return bool(ok)
+
+
 _ME: dict = {}
 
 
@@ -154,10 +168,11 @@ HELP = """<b>WorldScope</b> — xalqaro yangiliklar tahlili.
 /sanksiya Nom — OFAC, BMT, YeI va Buyuk Britaniya ro'yxatlarida nom qidirish
 /bogla KOD — saytdagi akkauntni shu chatga bog'lash (kod "Profil" sahifasida)
 /mening — kuzatayotgan davlat va kompaniyalaringiz holati
+/parol — parolni unutgan bo'lsangiz: bog'langan akkauntga vaqtinchalik parol
 /stop — kunlik xabarlarni to'xtatish, /start — qayta yoqish
 
 Har kuni ertalab qisqa digest keladi. Kuzatilgan juftlik har hafta qayta tahlil qilinadi; munosabat keskin
-o'zgarsa darhol xabar beraman. Batafsil sahifalar saytda (parol bilan)."""
+o'zgarsa darhol xabar beraman. Batafsil sahifalar saytda."""
 
 
 def pair_name(a: str, b: str) -> str:
@@ -268,6 +283,8 @@ async def handle(update: dict, analyze_pair=None) -> None:
         await link_account(chat_id, args.strip())
     elif cmd == "/mening":
         await send(chat_id, mine_text(str(chat_id)))
+    elif cmd == "/parol":
+        await send(chat_id, reset_password(chat_id))
     elif cmd == "/kuzatuvlar":
         rows = db.rows("SELECT a, b, key FROM tg_follows WHERE chat_id = ? ORDER BY created", (chat_id,))
         if not rows:
@@ -281,6 +298,19 @@ async def handle(update: dict, analyze_pair=None) -> None:
         await send(chat_id, "<b>Kuzatuvlaringiz</b>\n" + "\n".join(lines))
     else:
         await send(chat_id, "Bunday buyruq yo'q. /yordam")
+
+
+def reset_password(chat_id) -> str:
+    """A temporary password for the account linked to this chat; other sessions are signed out."""
+    import accounts  # local: the bot module is imported by accounts' callers too
+
+    user = accounts.by_chat(chat_id)
+    if not user:
+        return "Bu chat hech qaysi akkauntga bog'lanmagan. Saytda kirib, Profil sahifasidagi kod bilan /bogla qiling."
+    temp = accounts.temp_password()
+    accounts.set_password(user["id"], temp)
+    return (f"🔑 <b>{esc(user['username'])}</b> uchun vaqtinchalik parol: <code>{temp}</code>\n"
+            "Kirgach, Profil sahifasida o'zingizga yangi parol qo'ying. Bu xabarni o'chirib qo'ying.")  # fmt: skip
 
 
 async def risk_text(iso: str) -> str:

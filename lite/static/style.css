@@ -618,3 +618,38 @@ dialog#prefs .row { margin-top: 16px; }
 @media (min-width: 901px) { .mapwrap .globe-legend { left: 390px; max-width: calc(100% - 400px); } }
 .tabs { overflow-x: auto; scrollbar-width: none; }
 .tabs a { white-space: nowrap; flex: 0 0 auto; }
+.hp { position: absolute !important; left: -9999px; width: 1px; height: 1px; overflow: hidden; }
+textarea { font: inherit; color: var(--ink); background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; resize: vertical; }
+footer a { color: var(--muted); text-decoration: underline; }
+.storypage { max-width: 780px; margin: 0 auto; }
+.storypage h1 { font-size: 34px; line-height: 1.2; }
+.storypage .plainline.big { font-size: 18px; margin: 10px 0; }
+.storypage .uz { font-size: 15px; background: #3fbf8614; border-left: 3px solid var(--good); padding: 8px 12px; border-radius: 4px; }
+.storypage .meta { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; color: var(--muted); font-size: 13px; margin: 12px 0; }
+.storypage .src { font-weight: 600; color: var(--ink); }
+.crumbs { color: var(--muted); margin: 0; }
+.timeline { list-style: none; padding: 0; border-left: 2px solid var(--line); margin-left: 6px; }
+.timeline > li { position: relative; padding: 0 0 14px 18px; }
+.timeline > li::before { content: ""; position: absolute; left: -7px; top: 5px; width: 12px; height: 12px; border-radius: 50%; background: var(--gold); }
+.timeline .day { font-weight: 700; }
+.timeline ul { margin: 4px 0 0; padding-left: 16px; }
+.timeline ul li { margin: 4px 0; }
+.visitbars { display: flex; gap: 4px; align-items: flex-end; height: 110px; margin: 8px 0 4px; }
+.visitbars div { flex: 1; display: flex; flex-direction: column; align-items: center; height: 100%; justify-content: flex-end; }
+.visitbars i { display: flex; flex-direction: column; justify-content: flex-end; width: 100%; background: var(--gold); border-radius: 3px 3px 0 0; min-height: 2px; }
+.visitbars b { display: block; width: 100%; background: var(--good); }
+.visitbars span { font-size: 10px; color: var(--muted); }
+.fb li { border-bottom: 1px solid var(--line); padding: 8px 0; }
+.fb li.done { opacity: .5; }
+.langbtn { font-size: 12px; font-weight: 700; padding: 4px 8px; border: 1px solid var(--line); border-radius: 6px; color: #cbbf9d; }
+.langbtn:hover { text-decoration: none; color: #fff3cf; }
+.langnote { background: var(--warn-bg); border-radius: 8px; padding: 6px 12px; font-size: 13px; margin: 0 0 12px; }
+.signin { padding: 5px 12px; }
+/* readable gold on parchment, and a visible focus for keyboard users */
+:root[data-theme=light] .countryhead h1, :root[data-theme=light] .hero h1, :root[data-theme=light] .hero h2 { color: #7a5a0c; }
+a:focus-visible, button:focus-visible, summary:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-visible,
+[tabindex]:focus-visible { outline: 2px solid #f0d77a; outline-offset: 2px; }
+.skip { position: absolute; left: 8px; top: -60px; z-index: 100; background: var(--accent); color: var(--accent-ink); padding: 8px 14px; border-radius: 6px; font-weight: 600; }
+.skip:focus { top: 8px; }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; } }
+main:focus { outline: none; }

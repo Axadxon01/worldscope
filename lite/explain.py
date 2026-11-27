@@ -15,7 +15,7 @@ from datetime import UTC, datetime
 import analyze
 import db
 
-PER_RUN = 24
+PER_RUN = 18  # with Russian too, a bigger batch would not fit one answer
 TOPIC = {  # category → (emoji, plain words); also the topics offered when a visitor says what interests them
     "conflict": ("⚔️", "urush yoki to'qnashuv"),
     "defense": ("🛡️", "qurol va armiya"),
@@ -92,8 +92,10 @@ For each numbered news story write:
 - "why": ONE short sentence on how this may touch people living in Uzbekistan (prices, jobs, migrants
   abroad, trade, gas, safety, the region). Write "" unless there is a real, direct link: do not invent one.
 - "emoji": one fitting emoji.
+- "title_ru", "simple_ru", "why_ru": the same three in Russian ("why_ru" is "" when "why" is "").
 Only use what the headline and snippet say. Return ONLY JSON:
-{"items": [{"n": 1, "title": "...", "simple": "...", "why": "...", "emoji": "..."}]}"""
+{"items": [{"n": 1, "title": "...", "simple": "...", "why": "...", "emoji": "...",
+            "title_ru": "...", "simple_ru": "...", "why_ru": "..."}]}"""
 
 
 def write(groups: list[list[dict]]) -> dict[str, dict]:
@@ -122,6 +124,8 @@ def write(groups: list[list[dict]]) -> dict[str, dict]:
         val = {"emoji": str(it.get("emoji", "🌍")).strip()[:4] or "🌍", "simple": simple[:220],
                "title": str(it.get("title", "")).strip()[:160],
                "why": str(it.get("why", "")).strip()[:220], "ai": True}  # fmt: skip
+        for f, cap in (("title_ru", 160), ("simple_ru", 220), ("why_ru", 220)):
+            val[f] = str(it.get(f, "")).strip()[:cap]
         db.cache_put(f"explain:{k}", val)
         out[k] = val
     return out

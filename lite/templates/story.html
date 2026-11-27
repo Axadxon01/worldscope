@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% set head = (pick(line, "title") or lead.title) if g else _("Voqea topilmadi") %}
+{% set simple = pick(line, "simple") %}{% set why = pick(line, "why") %}
+{% block title %}{{ head }} · WorldScope{% endblock %}
+{% block desc %}{{ simple or (lead.summary[:200] if g and lead.summary else head) }}{% endblock %}
+{% block body %}
+{% if not g %}
+<div class="empty"><h1>{{ _("Voqea topilmadi") }}</h1><p>{{ _("U eskirgan bo'lishi mumkin: sayt yangiliklarni bir hafta saqlaydi.") }}</p>
+  <p><a href="/">{{ _("Bugungi voqealar →") }}</a></p></div>
+{% else %}
+<article class="storypage">
+  <p class="crumbs small"><a href="/">{{ _("Bugun") }}</a> › {{ _("Voqea") }}</p>
+  <h1>{% if line %}<span aria-hidden="true">{{ line.emoji }}</span> {% endif %}{{ head }}</h1>
+  {% if simple %}
+  <p class="plainline big">{{ simple }}</p>
+  {% if why %}<p class="uz"><b>{{ _("🇺🇿 Bizga ta'siri:") }}</b> {{ why }}</p>{% endif %}
+  {% elif lead.summary %}<p class="sum">{{ lead.summary }}</p>{% endif %}
+  <div class="meta">
+    <span class="src">👥 {{ pubs }} {{ _("manba") }}</span>
+    <span>· {{ days|length }} {{ _("kun davomida yozildi") }}</span>
+    {% for c in countries %}<a class="chip" href="/country/{{ c }}">{{ uzname(c) }}</a>{% endfor %}
+    <button type="button" class="share" data-title="{{ head }}" data-text="{{ simple or head }}"
+      data-url="{{ public_url }}/story/{{ lead.id }}">{{ _("↗ Ulashish") }}</button>
+  </div>
+  {% if countries|length >= 1 %}<p class="small"><a href="/map?c={{ countries[0] }}">🌐 {{ uzname(countries[0]) }}{{ _("ning aloqalarini globusda ko'rish →") }}</a></p>{% endif %}
+
+  <h2>{{ _("Voqea qanday rivojlandi") }}</h2>
+  <ol class="timeline">
+    {% for day, items in days.items() %}
+    <li><time class="day">{{ day }}</time>
+      <ul>{% for x in items %}<li><a href="{{ x.url }}" target="_blank" rel="noopener noreferrer">{{ x.title }}</a>
+        <span class="muted small">— {{ x.publisher }}, {{ x.published[11:16] }} UTC</span></li>{% endfor %}</ul></li>
+    {% endfor %}
+  </ol>
+  <p class="muted small">{{ _("WorldScope matnni o'zi yozmaydi: har bir havola asl nashrga olib boradi. Oddiy tildagi qatorlarni AI yozgan va xato qilishi mumkin.") }}
+    <a href="/feedback?page={{ ('/story/' ~ lead.id)|urlencode }}">{{ _("Xato topdingizmi? Xabar bering") }}</a></p>
+</article>
+{% endif %}
+{% endblock %}

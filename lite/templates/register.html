@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block title %}{{ _("Ro'yxatdan o'tish") }} · WorldScope{% endblock %}
+{% block body %}
+<section class="login card">
+  <h1>{{ _("Ro'yxatdan o'tish") }}</h1>
+  <p class="lede">{{ _("Bepul. Akkaunt bilan davlat va kompaniyalarni kuzatasiz, o'zgarish bo'lsa ogohlantirish olasiz, Telegramga shaxsiy dayjest ulaysiz va AI tahlillarini yaratasiz.") }}</p>
+  {% if error %}<p class="warn">{{ error }}</p>{% endif %}
+  <form method="post" action="/register" autocomplete="on">
+    <input type="hidden" name="next" value="{{ next }}">
+    <label class="hp" aria-hidden="true">Veb-sayt<input name="website" tabindex="-1" autocomplete="off"></label>
+    <label>{{ _("Login (3–32 belgi)") }}<input name="username" required minlength="3" maxlength="32" autocomplete="username" autofocus></label>
+    <label>{{ _("Parol (kamida 8 belgi)") }}<input type="password" name="password" required minlength="8" autocomplete="new-password"></label>
+    <label>{{ _("Parol yana bir marta") }}<input type="password" name="password2" required minlength="8" autocomplete="new-password"></label>
+    <button>{{ _("Akkaunt yaratish") }}</button>
+  </form>
+  <p class="muted small">{{ _("Akkauntingiz bormi?") }} <a href="/login?next={{ next|urlencode }}">{{ _("Kirish") }}</a>. Elektron pochta so'ralmaydi;
+    parolni unutsangiz, Telegram'ni bog'lagan bo'lsangiz, bot orqali tiklaysiz.</p>
+</section>
+{% endblock %}

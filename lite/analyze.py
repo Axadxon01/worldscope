@@ -485,6 +485,35 @@ def title_tokens(title: str) -> set[str]:
     return toks
 
 
+# Sport, show business and lifestyle: not what this site is for, and they crowd out the news that is.
+_NOISE_EN = [
+    "football", "soccer", "cricket", "tennis", "basketball", "baseball", "rugby", "golf", "hockey", "volleyball",
+    "boxing", "ufc", "olympic", "olympics", "fifa", "uefa", "premier league", "champions league", "world cup",
+    "grand slam", "formula 1", "nba", "nfl", "tournament", "striker", "goalkeeper", "u-17", "u-20", "u-23",
+    "youth team", "celebrity", "actress", "singer", "rapper", "box office", "film festival", "netflix", "concert",
+    "fashion week", "horoscope", "recipe",
+]  # fmt: skip
+_NOISE_STEMS = [  # Russian and Uzbek take endings: the start of the word is enough
+    "футбол", "матч", "сборн", "турнир", "чемпионат", "хоккей", "теннис", "боксер", "олимпиад", "лига чемпионов",
+    "певец", "певиц", "актер", "актрис", "сериал", "концерт",
+    "futbol", "terma jamoa", "chempionat", "turnir", "o'yinchi", "murabbiy", "xonanda", "aktyor", "serial", "konsert",
+    "olimpiada",
+]  # fmt: skip
+_NOISE = re.compile(
+    r"(?<![\w'])(?:(?:"
+    + "|".join(re.escape(w) for w in _NOISE_EN)
+    + r")(?![\w'])|(?:"
+    + "|".join(re.escape(w) for w in _NOISE_STEMS)
+    + "))",
+    re.I,
+)
+
+
+def is_noise(title: str) -> bool:
+    """A headline about sport or show business, in English, Russian or Uzbek."""
+    return bool(_NOISE.search(re.sub(r"[‘’ʻʼ`]", "'", title or "")))
+
+
 def title_key(title: str) -> str:
     return " ".join(sorted(title_tokens(title)))
 
@@ -911,8 +940,159 @@ UZ_NAMES.update(
 )
 
 
+# Every other country and territory in Uzbek (Latin script), so no English name shows through.
+UZ_NAMES |= {
+    "ABW": "Aruba",
+    "AGO": "Angola",
+    "AIA": "Angilya",
+    "ALA": "Aland orollari",
+    "ALB": "Albaniya",
+    "AND": "Andorra",
+    "ARG": "Argentina",
+    "ASM": "Amerika Samoasi",
+    "ATA": "Antarktida",
+    "ATF": "Fransiya janubiy hududlari",
+    "ATG": "Antigua va Barbuda",
+    "BDI": "Burundi",
+    "BEN": "Benin",
+    "BFA": "Burkina-Faso",
+    "BGD": "Bangladesh",
+    "BHR": "Bahrayn",
+    "BHS": "Bagama orollari",
+    "BIH": "Bosniya va Gertsegovina",
+    "BLM": "Sen-Bartelemi",
+    "BLR": "Belarus",
+    "BLZ": "Beliz",
+    "BMU": "Bermuda",
+    "BOL": "Boliviya",
+    "BRB": "Barbados",
+    "BRN": "Bruney",
+    "BTN": "Butan",
+    "BWA": "Botsvana",
+    "CAF": "Markaziy Afrika Respublikasi",
+    "CIV": "Kot-d'Ivuar",
+    "CMR": "Kamerun",
+    "COG": "Kongo",
+    "COK": "Kuk orollari",
+    "COM": "Komor orollari",
+    "CPV": "Kabo-Verde",
+    "CRI": "Kosta-Rika",
+    "CUW": "Kyurasao",
+    "CYM": "Kayman orollari",
+    "CYP": "Kipr",
+    "DJI": "Jibuti",
+    "DMA": "Dominika",
+    "DOM": "Dominikan Respublikasi",
+    "ECU": "Ekvador",
+    "ERI": "Eritreya",
+    "ESH": "G'arbiy Sahroi Kabir",
+    "FJI": "Fiji",
+    "FLK": "Folklend orollari",
+    "FRO": "Farer orollari",
+    "FSM": "Mikroneziya",
+    "GAB": "Gabon",
+    "GGY": "Gernsi",
+    "GIN": "Gvineya",
+    "GMB": "Gambiya",
+    "GNB": "Gvineya-Bisau",
+    "GNQ": "Ekvatorial Gvineya",
+    "GRD": "Grenada",
+    "GRL": "Grenlandiya",
+    "GTM": "Gvatemala",
+    "GUM": "Guam",
+    "GUY": "Gayana",
+    "HMD": "Xerd va Makdonald orollari",
+    "HND": "Gonduras",
+    "HTI": "Gaiti",
+    "IMN": "Men oroli",
+    "IOT": "Britaniya Hind okeani hududi",
+    "JAM": "Yamayka",
+    "JEY": "Jersi",
+    "KIR": "Kiribati",
+    "KNA": "Sent-Kits va Nevis",
+    "LAO": "Laos",
+    "LBR": "Liberiya",
+    "LCA": "Sent-Lyusiya",
+    "LIE": "Lixtenshteyn",
+    "LSO": "Lesoto",
+    "LUX": "Lyuksemburg",
+    "MAC": "Makao",
+    "MAF": "Sen-Marten",
+    "MCO": "Monako",
+    "MDA": "Moldova",
+    "MDV": "Maldiv orollari",
+    "MHL": "Marshall orollari",
+    "MKD": "Shimoliy Makedoniya",
+    "MLI": "Mali",
+    "MLT": "Malta",
+    "MNE": "Chernogoriya",
+    "MNP": "Shimoliy Mariana orollari",
+    "MOZ": "Mozambik",
+    "MRT": "Mavritaniya",
+    "MSR": "Montserrat",
+    "MUS": "Mavrikiy",
+    "MWI": "Malavi",
+    "NAM": "Namibiya",
+    "NCL": "Yangi Kaledoniya",
+    "NER": "Niger",
+    "NFK": "Norfolk oroli",
+    "NIC": "Nikaragua",
+    "NIU": "Niue",
+    "NPL": "Nepal",
+    "NRU": "Nauru",
+    "PAN": "Panama",
+    "PCN": "Pitkern orollari",
+    "PER": "Peru",
+    "PLW": "Palau",
+    "PNG": "Papua – Yangi Gvineya",
+    "PRI": "Puerto-Riko",
+    "PRY": "Paragvay",
+    "PYF": "Fransuz Polineziyasi",
+    "QAT": "Qatar",
+    "RWA": "Ruanda",
+    "SDN": "Sudan",
+    "SEN": "Senegal",
+    "SGS": "Janubiy Georgiya va Janubiy Sendvich orollari",
+    "SHN": "Muqaddas Yelena oroli",
+    "SLB": "Solomon orollari",
+    "SLE": "Syerra-Leone",
+    "SLV": "Salvador",
+    "SMR": "San-Marino",
+    "SOM": "Somali",
+    "SPM": "Sen-Pyer va Mikelon",
+    "SSD": "Janubiy Sudan",
+    "STP": "San-Tome va Prinsipi",
+    "SUR": "Surinam",
+    "SVN": "Sloveniya",
+    "SWZ": "Esvatini",
+    "SXM": "Sint-Marten",
+    "SYC": "Seyshel orollari",
+    "TCA": "Teks va Kaykos orollari",
+    "TCD": "Chad",
+    "TGO": "Togo",
+    "TLS": "Sharqiy Timor",
+    "TON": "Tonga",
+    "TTO": "Trinidad va Tobago",
+    "TUV": "Tuvalu",
+    "UGA": "Uganda",
+    "URY": "Urugvay",
+    "VCT": "Sent-Vinsent va Grenadin",
+    "VGB": "Britaniya Virgin orollari",
+    "VIR": "AQSh Virgin orollari",
+    "VUT": "Vanuatu",
+    "WLF": "Uollis va Futuna",
+    "WSM": "Samoa",
+    "ZMB": "Zambiya",
+    "ZWE": "Zimbabve",
+}
+
+
 def display_name(iso: str, lang: str = "uz") -> str:
     info = COUNTRY_INFO.get(iso, {})
+    if lang == "ru":
+        import i18n
+
+        return i18n.RU_NAMES.get(iso) or info.get("name", iso)
     return (UZ_NAMES.get(iso) if lang == "uz" else None) or info.get("name", iso)
 
 

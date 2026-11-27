@@ -23,10 +23,15 @@ jobs:
           TOKEN: ${{ secrets.LITE_CRON_TOKEN }}
         run: |
           # a sleeping free service takes up to a minute or two to start
+          up=0
           for i in $(seq 1 12); do
-            if curl -sf -m 20 "$URL/healthz" > /dev/null; then break; fi
+            if curl -sf -m 20 "$URL/healthz" > /dev/null; then up=1; break; fi
             echo "waiting for the service ($i)"; sleep 15
           done
+          # still down after 3 minutes: fail the run, so GitHub e-mails the repository owner
+          if [ "$up" -ne 1 ]; then echo "::error::WorldScope Lite did not answer for 3 minutes"; exit 1; fi
+          # the front page must render too, not only the health check
+          curl -sf -m 60 -o /dev/null "$URL/" || { echo "::error::the front page failed"; exit 1; }
           # with a token, ask for the due jobs at once; without one the app starts them itself
           if [ -n "$TOKEN" ]; then
             curl -sS -m 30 -X POST -H "x-cron-token: $TOKEN" "$URL/cron/jobs" || true

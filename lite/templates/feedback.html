@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block title %}Xabar yuborish · WorldScope{% endblock %}
+{% block body %}
+<section class="login card">
+  <h1>{{ _("Xato topdingizmi?") }}</h1>
+  {% if sent %}
+  <p class="ok">{{ _("Rahmat! Xabaringiz administratorga yetkazildi.") }}</p>
+  <p><a href="{{ page if page.startswith('/') else '/' }}">{{ _("← Ortga qaytish") }}</a></p>
+  {% else %}
+  <p class="lede">{{ _("Noto'g'ri tarjima, xato fakt, ishlamayotgan tugma yoki taklif — hammasi foydali. Qisqa yozing.") }}</p>
+  <form method="post" action="/feedback">
+    <input type="hidden" name="page" value="{{ page }}">
+    {% if page %}<p class="small muted">{{ _("Sahifa:") }} {{ page }}</p>{% endif %}
+    <label>{{ _("Nima noto'g'ri?") }}<textarea name="text" required maxlength="2000" rows="5"></textarea></label>
+    <label>{{ _("Javob kerak bo'lsa — Telegram yoki email (ixtiyoriy)") }}<input name="contact" maxlength="200"></label>
+    <button>{{ _("Yuborish") }}</button>
+  </form>
+  {% endif %}
+</section>
+{% endblock %}

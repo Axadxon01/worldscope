@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}Boshqaruv · WorldScope Lite{% endblock %}
 {% block body %}
-<h2>Boshqaruv</h2>
+<h1>Boshqaruv</h1>
 {% if msg %}<p class="ok">{{ msg }}</p>{% endif %}
 {% if error %}<p class="warn">{{ error }}</p>{% endif %}
 {% if created %}
@@ -41,7 +41,8 @@
     <thead><tr><th>Ish</th><th>Har</th><th>Oxirgi marta</th><th></th></tr></thead>
     <tbody>{% for name, every in EVERY.items() %}
       <tr><td>{{ {"refresh": "Yangiliklar", "automap": "Kunlik AI xaritasi", "digest": "Telegram digest", "weekly": "Juftliklar qayta tahlili",
-                  "sanctions": "Sanksiya ro'yxatlari", "watch_risk": "Kuzatuv: xavf indeksi", "predictions": "Bashoratlar tekshiruvi"}[name] }}</td>
+                  "sanctions": "Sanksiya ro'yxatlari", "watch_risk": "Kuzatuv: xavf indeksi", "predictions": "Bashoratlar tekshiruvi",
+                  "explain": "Oddiy izohlar va tarjima", "backup": "Zaxira Telegramga"}.get(name, name) }}</td>
         <td class="small">{% if name == "digest" %}har kuni 07:00{% else %}{{ (every.total_seconds() / 3600)|round|int }} soat{% endif %}</td>
         <td class="small">{{ jobs[name].isoformat()|ago if name in jobs else "hali yo'q" }}</td>
         <td><form method="post" action="/admin/jobs"><input type="hidden" name="job" value="{{ name }}"><button class="ghost small">▶</button></form></td></tr>
@@ -63,12 +64,38 @@
 </section>
 
 <section class="card">
+  <h3>Tashrif buyuruvchilar</h3>
+  {% set v = visits %}
+  <p>So'nggi 7 kunda: <b>{{ v.week }}</b> kishi, shundan <b>{{ v.week_back }}</b> tasi qaytib kelgan{% if v.rate is not none %} (<b>{{ v.rate }}%</b>){% endif %}.
+    Jami: {{ v.all }}.</p>
+  {% if v.days %}
+  {% set top = (v.days|map(attribute='n')|max) or 1 %}
+  <div class="visitbars" aria-label="Kunlik tashriflar">{% for d in v.days %}
+    <div title="{{ d.day }}: {{ d.n }} kishi, {{ d.back }} qaytgan"><i style="height:{{ (100 * d.n / top)|round|int }}%"><b style="height:{{ (100 * d.back / (d.n or 1))|round|int }}%"></b></i><span>{{ d.day[8:] }}</span></div>
+  {% endfor %}</div>
+  <p class="muted small">Oltin — yangi, yashil — qaytgan. Kimligi saqlanmaydi: faqat brauzer cookie'sining tuzli xeshi.</p>
+  {% else %}<p class="muted small">Hali ma'lumot yo'q.</p>{% endif %}
+</section>
+
+<section class="card" id="xabarlar">
+  <h3>Foydalanuvchi xabarlari</h3>
+  {% if feedback %}
+  <ul class="plain fb">{% for f in feedback %}
+    <li class="{{ 'done' if f.done }}"><div class="small muted">{{ f.created[:16].replace('T', ' ') }}{% if f.who %} · {{ f.who }}{% endif %}{% if f.page %} · <a href="{{ f.page }}">{{ f.page[:60] }}</a>{% endif %}{% if f.contact %} · {{ f.contact }}{% endif %}</div>
+      <div>{{ f.text }}</div>
+      {% if not f.done %}<form method="post" action="/admin/feedback/{{ f.id }}/done"><button class="ghost small">✓ Hal qilindi</button></form>{% endif %}</li>
+  {% endfor %}</ul>
+  {% else %}<p class="muted small">Hali xabar yo'q.</p>{% endif %}
+</section>
+
+<section class="card">
   <h3>Zaxira</h3>
   <p class="small">Akkauntlar, kuzatuv ro'yxatlari, tahlillar, xaritalar va bashoratlar bitta JSON faylga yoziladi (yangiliklar va sanksiya
-    ro'yxatlari qayta yuklanadi). Bepul baza muddati tugashidan oldin yuklab oling va yangi bazada tiklang.</p>
+    ro'yxatlari qayta yuklanadi). Bepul baza muddati tugashidan oldin yuklab oling va yangi bazada tiklang. Telegram bog'lagan
+    administratorlarga zaxira har hafta avtomatik yuboriladi.</p>
   <p><a class="button" href="/admin/export">⬇ Zaxirani yuklab olish</a></p>
   <form method="post" action="/admin/import" enctype="multipart/form-data" class="pickrow">
-    <input type="file" name="file" accept="application/json,.json" required>
+    <input type="file" name="file" accept="application/json,.json,.gz" required>
     <button class="ghost">⬆ Tiklash</button>
   </form>
 </section>

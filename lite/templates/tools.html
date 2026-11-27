@@ -1,11 +1,11 @@
 {% extends "base.html" %}
-{% block title %}Tahlil asboblari · WorldScope Lite{% endblock %}
+{% block title %}{{ _("Tahlil asboblari") }} · WorldScope{% endblock %}
 {% block body %}
-<header class="countryhead"><h1>Tahlil asboblari</h1></header>
-<p class="lede">Chuqurroq bilmoqchi bo'lsangiz — har bir asbob bitta savolga javob beradi.</p>
+<header class="countryhead"><h1>{{ _("Tahlil asboblari") }}</h1></header>
+<p class="lede">{{ _("Chuqurroq bilmoqchi bo'lsangiz — har bir asbob bitta savolga javob beradi.") }}</p>
 <div class="toolgrid">
   {% for href, icon, name, what, _adm in items %}
-  <a class="toolcard" href="{{ href }}"><span class="ti" aria-hidden="true">{{ icon }}</span><b>{{ name }}</b><small>{{ what }}</small></a>
+  <a class="toolcard" href="{{ href }}"><span class="ti" aria-hidden="true">{{ icon }}</span><b>{{ _(name) }}</b><small>{{ _(what) }}</small></a>
   {% endfor %}
 </div>
 {% endblock %}

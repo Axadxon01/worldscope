@@ -102,4 +102,45 @@
     if (navigator.share) { navigator.share({title, text, url}).catch(() => {}); return; }
     window.open("https://t.me/share/url?url=" + encodeURIComponent(url) + "&text=" + encodeURIComponent(text), "_blank", "noopener");
   });
+
+  // The app on the home screen and the browser's notifications
+  if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});
+  const b64 = s => { const p = "=".repeat((4 - s.length % 4) % 4), raw = atob((s + p).replace(/-/g, "+").replace(/_/g, "/"));
+    return Uint8Array.from([...raw].map(c => c.charCodeAt(0))); };
+  const pushOk = "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
+  async function currentSub() { const reg = await navigator.serviceWorker.ready; return reg.pushManager.getSubscription(); }
+  const post = (url, body) => fetch(url, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)});
+  async function paintPush() {
+    const sub = pushOk ? await currentSub().catch(() => null) : null;
+    document.querySelectorAll("[data-push]").forEach(b => {
+      if (!pushOk) { b.disabled = true; b.textContent = "🔕 Bu brauzer bildirishnomani qo'llamaydi"; return; }
+      b.dataset.on = sub ? "1" : "";
+      b.textContent = sub ? "🔕 Bildirishnomani o'chirish" : "🔔 Ertalabki bildirishnomani yoqish";
+    });
+  }
+  document.addEventListener("click", async e => {
+    const b = e.target.closest?.("[data-push]"); if (!b || !pushOk) return;
+    b.disabled = true;
+    try {
+      const old = await currentSub();
+      if (old) { await post("/push/unsubscribe", {endpoint: old.endpoint}); await old.unsubscribe(); }
+      else {
+        if (await Notification.requestPermission() !== "granted") { alert("Brauzer sozlamalarida bu sayt uchun bildirishnomaga ruxsat bering."); return; }
+        const {key} = await (await fetch("/push/key")).json();
+        const reg = await navigator.serviceWorker.ready;
+        const sub = await reg.pushManager.subscribe({userVisibleOnly: true, applicationServerKey: b64(key)});
+        await post("/push/subscribe", sub.toJSON());
+      }
+    } catch (err) { alert("Yoqib bo'lmadi: " + err.message); }
+    finally { b.disabled = false; paintPush(); }
+  });
+  if (pushOk) {
+    paintPush();
+    // once a day the subscription is sent again, so a change of interests reaches the morning message
+    currentSub().then(sub => {
+      const today = new Date().toISOString().slice(0, 10);
+      let last = ""; try { last = localStorage.getItem("ws-push-sync") || ""; } catch (err) {}
+      if (sub && last !== today) { post("/push/subscribe", sub.toJSON()); try { localStorage.setItem("ws-push-sync", today); } catch (err) {} }
+    }).catch(() => {});
+  }
 })();
