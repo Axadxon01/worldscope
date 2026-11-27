@@ -20,7 +20,7 @@ import collectors
 NOW = datetime.now(UTC)
 # modules that hold a database handle or settings read at import: reloaded for every test
 MODULES = ("db", "facts", "debt", "telegram_bot", "sanctions", "risk", "framing", "accounts", "watch",
-           "predictions", "trade", "scheduler", "embed", "app")  # fmt: skip
+           "predictions", "trade", "scheduler", "embed", "explain", "app")  # fmt: skip
 
 
 def use_test_db(monkeypatch, tmp_path, name):
@@ -197,7 +197,7 @@ def test_pages_render_with_data(client):
     s = c.get("/sources").text
     assert "HTTP 403" in s and "✓" in s
     b = c.get("/brief").text
-    assert "ANTHROPIC_API_KEY" in b
+    assert "hozircha mavjud emas" in b
 
 
 def test_dedup_on_second_refresh(client):
@@ -1819,3 +1819,36 @@ def test_logs_never_show_tokens(caplog):
     rec2 = logging.LogRecord("x", logging.INFO, "", 0, "GET https://x.test/a?key=abc123&q=1", (), None)
     f.filter(rec2)
     assert rec2.getMessage() == "GET https://x.test/a?key=***&q=1"
+
+
+def test_plain_words_for_stories_and_risk(client, monkeypatch):
+    c, app_mod = client
+    E = app_mod.explain
+    groups = app_mod._top_groups(48, 1)
+    assert groups
+    fb = E.for_groups(groups[:3])
+    assert all(v["simple"].endswith(".") and not v["ai"] for v in fb.values())
+    monkeypatch.setattr(app_mod.analyze, "ai_available", lambda: True)
+    reply = json.dumps({"items": [{"n": 1, "simple": "Ikki davlat gaplashdi.", "why": "Narxlar tushishi mumkin.", "emoji": "🤝"},
+                                  {"n": 99, "simple": "noto'g'ri raqam"}]})  # fmt: skip
+    monkeypatch.setattr(app_mod.analyze, "complete", lambda *a, **k: (reply, "m"))
+    import asyncio
+
+    monkeypatch.setattr(app_mod, "_top_groups", lambda *a, **k: groups)
+    assert asyncio.run(app_mod.job_explain()) == {"explained": 1}
+    assert E.for_groups(groups[:1])[E.key(groups[0])]["simple"] == "Ikki davlat gaplashdi."
+    app_mod._FEED_CACHE.clear()
+    page = c.get("/").text
+    assert "Oddiy qilib" in page and "Ikki davlat gaplashdi." in page and 'id="glossary"' in page
+    r = {"score": 39.4, "band": "o'rtachadan past", "components": [
+        {"label": "Siyosiy barqarorlik", "value": 48}, {"label": "Iqtisodiy holat", "value": 17}]}  # fmt: skip
+    s = E.risk_sentence(r, "O'zbekiston")
+    assert "o'rtachadan past (100 balldan 39)" in s and "siyosiy barqarorlik" in s and "iqtisodiy holat" in s
+    assert E.stale("2018") and not E.stale(str(datetime.now(UTC).year))
+
+
+def test_retired_default_source_is_switched_off_once(client):
+    _, app_mod = client
+    row = app_mod.db.one("SELECT enabled FROM sources WHERE value = 'https://www.arabnews.com/rss.xml'")
+    assert row is None or row["enabled"] == 0
+    assert app_mod.db.one("SELECT 1 AS x FROM sources WHERE value = 'site:arabnews.com'")

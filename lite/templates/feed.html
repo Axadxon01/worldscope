@@ -28,13 +28,13 @@
   <div>
     <h1>Dunyo hozir</h1>
     {% if hero.links %}
-      <p class="muted small">AI xaritasidagi asosiy aloqalar. Belgini yoki qatorni bosing: tub mantiq va manbalar ochiladi.</p>
-      <ul>{% for l in hero.links[:7] %}<li data-i="{{ loop.index0 }}"><i class="t-{{ l.type }}"></i><b>{{ hero.names.get(l.from, l.from) }} → {{ hero.names.get(l.to, l.to) }}</b> — {{ l.bubble or l.title }}</li>{% endfor %}</ul>
+      <p class="muted small">Davlatlar o'rtasida hozir nima bo'layotgani. Globusdagi rasmchani bosing — oddiy tilda tushuntiradi.</p>
+      {% set W = {"conflict": "⚔️ Urush", "trade": "🚢 Savdo", "diplomacy": "🤝 Muzokara", "cooperation": "🏗️ Hamkorlik", "aid": "📦 Yordam", "pressure": "✋ Bosim", "rivalry": "♟️ Raqobat", "dependence": "⛓️ Qaramlik"} %}
+      <ul>{% for l in hero.links[:7] %}<li data-i="{{ loop.index0 }}"><i class="t-{{ l.type }}"></i><span class="kw">{{ W.get(l.type, l.type) }}</span> <b>{{ hero.names.get(l.from, l.from) }} → {{ hero.names.get(l.to, l.to) }}</b> — {{ l.bubble or l.title }}</li>{% endfor %}</ul>
     {% else %}
-      <p class="muted small">Hozircha AI xaritasi yo'q, globusda yangiliklarda birga tilga olingan davlatlar ko'rsatilgan.
-        <a href="/map">Globus sahifasida</a> AI xaritasini yarating — urush, savdo va diplomatiya belgilari paydo bo'ladi.</p>
+      <p class="muted small">Bugungi xarita hali tayyorlanmoqda. Hozircha globusda yangiliklarda tez-tez birga tilga olingan
+        davlatlar kulrang chiziq bilan bog'langan.</p>
     {% endif %}
-    <p class="small"><span title="Mojaro">🪖 tank va samolyot — mojaro</span> · <span>🏪 bozor — savdo</span> · <span>🏛 saroy — diplomatiya</span> · <span>🏗 kran — hamkorlik</span></p>
     <p><a href="/map">To'liq globus →</a></p>
   </div>
 </section>
@@ -46,11 +46,23 @@
   document.querySelectorAll(".hero li").forEach(li => li.onclick = () => { location.href = "/map#" + (+li.dataset.i + 1); });
   fetch(new URL("/static/world/countries-110m.json", location.origin)).then(r => r.json()).then(topo => {
     WSGlobe(document.getElementById("heroglobe"), {topo, geo: H.geo, coords: H.coords, names: H.names, links: H.links, co: H.co,
-      colors: C, compact: true, start: [41, 64],
-      onLink: i => { location.href = "/map#" + (i + 1); }, onCountry: iso => { location.href = "/risk?c=" + iso; }});
+      colors: C, compact: true, start: [41, 64], card: true, more: i => "/map#" + (i + 1),
+      onCountry: iso => { location.href = "/country/" + iso; }});
   });
 })();
 </script>
+{% endif %}
+{% if top3 %}
+<section class="top3" aria-label="Bugungi asosiy voqealar">
+  <h2>Bugun dunyoda nima bo'ldi?</h2>
+  <p class="muted small">Eng ko'p nashr yozgan 3 ta voqea — oddiy tilda.</p>
+  <ol>{% for g in top3 %}{% set s = simple.get(ekey(g)) %}{% set pubs = g|map(attribute='publisher')|unique|list %}
+    <li><span class="big">{{ s.emoji if s else "🌍" }}</span>
+      <div><p class="lead">{{ s.simple if s else g[0].title }}</p>
+        {% if s and s.why %}<p class="why">👉 {{ s.why }}</p>{% endif %}
+        <p class="small muted">{{ pubs|length }} ta nashr yozdi · <a href="{{ g[0].url }}" target="_blank" rel="noopener noreferrer">asl xabar: {{ g[0].title[:90] }}{% if g[0].title|length > 90 %}…{% endif %}</a></p></div></li>
+  {% endfor %}</ol>
+</section>
 {% endif %}
 <form class="filters" method="get">
   <input type="search" name="q" value="{{ f.q }}" placeholder="Qidirish: davlat, mavzu, nashr…">
@@ -85,7 +97,7 @@
   <div class="box"><b>{{ ov.stories|length }}</b><span>ko'p manbali voqea</span></div>
   <div class="box wide">
     <span class="lbl">Eng ko'p tilga olingan davlatlar</span>
-    {% for iso, name, n in ov.countries[:10] %}<a class="chip c" href="{{ qs(country=iso) }}">{{ name }} <i>{{ n }}</i></a>{% endfor %}
+    {% for iso, name, n in ov.countries[:10] %}<a class="chip c" href="{{ qs(country=iso) }}">{{ uzname(iso) }} <i>{{ n }}</i></a>{% endfor %}
   </div>
   <div class="box wide">
     <span class="lbl">Mavzular</span>
@@ -108,6 +120,7 @@
     {% if pubs|length >= 3 %}<span class="seal" title="{{ pubs|length }} ta mustaqil manba yozgan">{{ pubs|length }}<small>MANBA</small></span>
     {% elif pubs|length > 1 %}<span class="badge">{{ pubs|length }} ta manba</span>{% endif %}
     <ul class="list inner">{{ art(g[0]) }}</ul>
+    {% set s = simple.get(ekey(g)) %}{% if s %}<p class="simple">{{ s.emoji }} <b>Oddiy qilib:</b> {{ s.simple }}{% if s.why %} <span class="why">{{ s.why }}</span>{% endif %}</p>{% endif %}
     {% if g|length > 1 %}
     <details><summary>Yana {{ g|length - 1 }} ta xabar: {{ pubs[1:5]|join(', ') }}{% if pubs|length > 5 %}…{% endif %}</summary>
       <ul class="list inner">{% for a in g[1:] %}{{ art(a) }}{% endfor %}</ul>

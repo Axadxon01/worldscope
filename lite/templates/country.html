@@ -28,7 +28,8 @@
   <div>
     <h1><span class="flag" aria-hidden="true">{{ flag }}</span> {{ name(iso) }} <span class="muted small">{{ en }}</span></h1>
     <span class="tierb t{{ tier }}">{{ TIER_SHORT[tier] }}</span>
-    {% if r and r.score is not none %}<a href="/risk?c={{ iso }}" class="score" style="background:{{ r.color }}" title="Xavf indeksi: {{ r.band }}">{{ r.score }}</a>{% endif %}
+    {% if r and r.score is not none %}<a href="/risk?c={{ iso }}" class="score" style="background:{{ r.color }}" title="Xavf indeksi: {{ r.band }}">Xavf {{ r.score|round|int }} / 100</a>{% endif %}
+    <p class="plain">🧭 {{ risk_text }}</p>
   </div>
   <div class="noprint">
     {% if watched %}<span class="chip c">📌 Kuzatilmoqda</span>{% else %}
@@ -43,7 +44,7 @@
     <h3>Asosiy raqamlar <span class="muted small">Jahon banki</span></h3>
     {% if wb %}
     <table class="facts small-t"><tbody>
-      {% for code, label, unit in INDICATORS if wb.get(code) %}<tr><td>{{ label }}</td><td><b>{{ human(wb[code].value, unit) }}</b> <span class="yr">{{ wb[code].year }}</span></td></tr>{% endfor %}
+      {% for code, label, unit in INDICATORS if wb.get(code) %}<tr class="{{ 'old' if stale(wb[code].year) }}"><td>{{ label }}</td><td><b>{{ human(wb[code].value, unit) }}</b> <span class="yr">{{ wb[code].year }}{% if stale(wb[code].year) %} · eski ma'lumot{% endif %}</span></td></tr>{% endfor %}
     </tbody></table>
     {% else %}<p class="muted small">Raqamlar hali kelmadi — sahifani birozdan keyin yangilang.</p>{% endif %}
     {% if r %}
@@ -65,7 +66,9 @@
   </section>
   <section class="card">
     <h3>📁 Sanksiyalar <a class="small" href="/sanctions?c={{ iso }}">ro'yxat →</a></h3>
-    {% if sanc %}<p><b>{{ sanc.total }}</b> ta yozuv shu davlatga bog'langan: {% for k, n in sanc.lists.items() %}{{ k }} {{ n }}{{ ", " if not loop.last }}{% endfor %}.</p>
+    {% if sanc %}<p><b>{{ sanc.total }}</b> ta kompaniya yoki odam ({{ name(iso) }}dagi manzil yoki fuqarolik bilan) xalqaro qora ro'yxatlarda turibdi:
+      {% for k, n in sanc.lists.items() %}{{ k }} {{ n }}{{ ", " if not loop.last }}{% endfor %}.</p>
+      <p class="small muted">Bu {{ name(iso) }}ning o'ziga sanksiya qo'yilgan degani emas. Faqat bu yerdagi hamkorni tekshirib ko'rish kerakligini bildiradi.</p>
     {% else %}<p class="muted small">Ro'yxatlarda bu davlatga bog'langan yozuv yo'q{% if not sanc %} (yoki ro'yxatlar hali yuklanmagan){% endif %}.</p>{% endif %}
   </section>
   <section class="card">
@@ -122,7 +125,8 @@
   const C = {cooperation:"#16a34a", trade:"#0ea5e9", aid:"#14b8a6", diplomacy:"#6366f1", pressure:"#f59e0b", conflict:"#dc2626", dependence:"#a855f7", rivalry:"#e11d48"};
   fetch(new URL("/static/world/countries-110m.json", location.origin)).then(r => r.json()).then(topo => {
     const g = WSGlobe(document.getElementById("cglobe"), {topo, geo: D.geo, coords: D.coords, names: D.names, links: D.links, colors: C,
-      compact: true, start: D.coords[D.focus], onCountry: iso => { location.href = "/country/" + iso; }, onLink: () => { location.href = "/map"; }});
+      compact: true, start: D.coords[D.focus], card: true, more: () => "/map",
+      onCountry: iso => { location.href = "/country/" + iso; }});
     g.focusCountry(D.focus);
   });
 })();

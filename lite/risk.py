@@ -67,7 +67,7 @@ COMPONENTS = [
     ("governance", "Boshqaruv sifati", 20, ["rl", "cc", "ge", "rq"]),
     ("debt", "Qarz yuki", 15, ["ext_debt", "gov_debt"]),
     ("economy", "Iqtisodiy holat", 15, ["inflation", "growth", "current"]),
-    ("sanctions", "Sanksiyalar", 15, ["sanctions"]),
+    ("sanctions", "Ro'yxatdagi kompaniyalar", 15, ["sanctions"]),
     ("news", "Yangiliklarda mojaro", 10, ["conflict_share"]),
 ]
 MIN_COMPONENTS = 3

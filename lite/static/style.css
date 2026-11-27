@@ -468,3 +468,39 @@ a.button { display: inline-block; background: var(--accent); color: var(--accent
   details > summary { display: none; }
   @page { margin: 14mm 12mm; }
 }
+
+/* ---------------------------------------------------------------- plain words */
+.term { border-bottom: 1.5px dotted var(--gold); cursor: help; position: relative; }
+.term:hover::after, .term:focus::after { content: attr(data-tip); position: absolute; left: 0; top: calc(100% + 6px); z-index: 30; width: max-content; max-width: 280px;
+  background: #0d1a33; color: #efe3c2; border: 1px solid #d4af3788; border-radius: 8px; padding: 8px 10px; font: 400 13px/1.4 Inter, sans-serif; white-space: normal; box-shadow: 0 8px 24px #000a; }
+:root[data-theme=light] .term:hover::after, :root[data-theme=light] .term:focus::after { background: #fff8e6; color: #2b2116; }
+.simple { margin: 6px 0 2px; font-size: 14px; background: #d4af3714; border-left: 3px solid var(--gold); padding: 6px 10px; border-radius: 4px; }
+.simple .why { display: block; color: var(--muted); font-size: 13px; margin-top: 2px; }
+.plain { font-size: 15px; background: #d4af3714; border-left: 3px solid var(--gold); padding: 8px 12px; border-radius: 4px; margin: 8px 0; }
+.top3 { margin: 0 0 18px; }
+.top3 ol { list-style: none; padding: 0; margin: 0; display: grid; gap: 10px; }
+.top3 li { display: flex; gap: 14px; align-items: flex-start; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; }
+.top3 .big { font-size: 34px; line-height: 1; }
+.top3 .lead { font-size: 17px; font-weight: 600; margin: 0 0 4px; }
+.top3 .why { margin: 0 0 4px; }
+tr.old td { opacity: .6; }
+/* the globe's own legend and hint */
+.globe-legend { position: absolute; left: 10px; bottom: 10px; z-index: 2; display: flex; flex-wrap: wrap; gap: 6px; max-width: calc(100% - 20px); }
+.globe-legend button { display: inline-flex; align-items: center; gap: 5px; background: #0b1426e0; color: #efe3c2; border: 1px solid #d4af3766;
+  border-radius: 99px; padding: 4px 10px; font: 600 13px Inter, sans-serif; cursor: pointer; }
+.globe-legend button i { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+.globe-legend button.off { opacity: .35; }
+.globe-legend button.solo { outline: 2px solid var(--gold); }
+:root[data-theme=light] .globe-legend button { background: #fff8e6ee; color: #2b2116; }
+.globe-hint { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); z-index: 2; background: #0b1426e6; color: #efe3c2;
+  border: 1px solid #d4af3788; border-radius: 99px; padding: 6px 14px; font: 600 13px Inter, sans-serif; transition: opacity .6s; pointer-events: none; white-space: nowrap; }
+.globe-hint.gone { opacity: 0; }
+.globe-card { position: absolute; right: 10px; top: 10px; z-index: 3; width: min(300px, calc(100% - 20px)); background: #0b1426f2; color: #efe3c2;
+  border: 1px solid #d4af37aa; border-radius: 12px; padding: 12px 14px; font: 14px/1.45 Inter, sans-serif; box-shadow: 0 10px 30px #000a; }
+.globe-card .ttl { font-weight: 700; font-size: 15px; margin-bottom: 4px; }
+.globe-card .kind { display: inline-block; border-radius: 99px; padding: 2px 10px; font-weight: 700; font-size: 13px; color: #fff; margin-bottom: 6px; }
+.globe-card button { position: absolute; top: 6px; right: 8px; background: none; border: 0; color: inherit; font-size: 18px; cursor: pointer; padding: 0; }
+.globe-card a { color: #e8c766; }
+:root[data-theme=light] .globe-card { background: #fff8e6f5; color: #2b2116; }
+@media (max-width: 760px) { .globe-hint { font-size: 12px; } .globe-legend button { font-size: 12px; padding: 3px 8px; } }
+.hero li .kw { font-weight: 700; font-size: 12.5px; white-space: nowrap; }

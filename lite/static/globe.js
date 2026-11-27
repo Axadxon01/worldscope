@@ -9,7 +9,22 @@
   "use strict";
   const TAU = Math.PI * 2, RAD = Math.PI / 180;
   const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
-  const MAX_ANIMATED = 12;
+  const MAX_ANIMATED = 8;
+  // what each kind of link is called, in words a child knows
+  const WORDS = {
+    conflict: ["⚔️", "Urush"], trade: ["🚢", "Savdo"], diplomacy: ["🤝", "Muzokara"], cooperation: ["🏗️", "Hamkorlik"],
+    aid: ["📦", "Yordam"], pressure: ["✋", "Bosim"], rivalry: ["♟️", "Raqobat"], dependence: ["⛓️", "Qaramlik"],
+  };
+  const EXPLAIN = {
+    conflict: "Bu ikki tomon o'rtasida urush yoki qattiq janjal bor.",
+    trade: "Bu davlatlar bir-biriga mol sotadi va sotib oladi.",
+    diplomacy: "Bu davlatlar rahbarlari uchrashib, gaplashib kelishmoqda.",
+    cooperation: "Bu davlatlar birga nimadir qurmoqda yoki birga ishlamoqda.",
+    aid: "Bir davlat ikkinchisiga pul, oziq-ovqat yoki dori bilan yordam bermoqda.",
+    pressure: "Bir davlat ikkinchisini biror narsaga majburlamoqchi: jazo, tahdid yoki talab.",
+    rivalry: "Bu davlatlar kim kuchliroq ekanida bellashmoqda.",
+    dependence: "Bir davlat ikkinchisiga juda bog'liq: usiz qiynaladi.",
+  };
 
   function theme() {
     const light = document.documentElement.dataset.theme === "light";
@@ -131,7 +146,7 @@
     const path = d3.geoPath(proj, ctx);
     const grat = d3.geoGraticule10();
     let W = 0, H = 0, R = 0, zoom = 1, rot = [-60, -25, 0], dragging = null, lastTouch = 0, anim = null, hover = null;
-    let layer = null, signs = true, focused = -1, focusIso = null, hitSigns = [];
+    let layer = null, signs = true, focused = -1, focusIso = null, hitSigns = [], solo = null, overSign = false;
     const involved = new Set();
     let links = [];
     function build(list) {
@@ -142,7 +157,7 @@
         involved.add(l.from); involved.add(l.to);
         const A = [a[1], a[0]], B = [b[1], b[0]], interp = d3.geoInterpolate(A, B);
         const n = Math.max(8, Math.round(d3.geoDistance(A, B) * 30));
-        return {i, l, line: {type: "LineString", coordinates: d3.range(n + 1).map(k => interp(k / n))}, mid: interp(.5), end: B, start: A};
+        return {i, l, interp, line: {type: "LineString", coordinates: d3.range(n + 1).map(k => interp(k / n))}, mid: interp(.5), end: B, start: A};
       }).filter(Boolean);
     }
     build(opt.links);
@@ -198,14 +213,20 @@
       }
       // arcs, with a travelling dash so the direction shows
       for (const k of links) {
+        if (solo && k.l.type !== solo) continue;
         const color = k.l.color || (opt.colors || {})[k.l.type] || "#d4af37", dim = focused >= 0 && focused !== k.i;
         const width = k.l.width || 2.2;
         ctx.globalAlpha = dim ? .25 : .95;
         ctx.beginPath(); path(k.line); ctx.strokeStyle = color; ctx.lineWidth = focused === k.i ? width + 1 : width;
         ctx.setLineDash(k.l.confidence === "low" ? [5, 6] : []); ctx.stroke();
-        if (!reduced) {
-          ctx.setLineDash([2, 14]); ctx.lineDashOffset = -t * 30; ctx.strokeStyle = "rgba(255,255,255,.8)"; ctx.lineWidth = 2;
-          ctx.beginPath(); path(k.line); ctx.stroke(); ctx.lineDashOffset = 0;
+        if (!reduced && !dim) {  // a small light travels from the first country to the second
+          const f = ((t * 0.22 + k.i * 0.37) % 1), pos = k.interp(f);
+          if (visible(pos)) {
+            const p = proj(pos);
+            const g2 = ctx.createRadialGradient(p[0], p[1], 0, p[0], p[1], 7);
+            g2.addColorStop(0, "rgba(255,255,255,.95)"); g2.addColorStop(1, "rgba(255,255,255,0)");
+            ctx.fillStyle = g2; ctx.beginPath(); ctx.arc(p[0], p[1], 7, 0, TAU); ctx.fill();
+          }
         }
         ctx.setLineDash([]);
         if (visible(k.end)) {                                  // arrow end
@@ -215,20 +236,45 @@
       }
       // the signs: nearest to the centre first, at most MAX_ANIMATED of them alive
       hitSigns = [];
+      const captions = [];                                     // [x, y, width] of the word pills, so names dodge them
       if (signs) {
-        const order = links.filter(k => visible(k.mid))
+        const order = links.filter(k => visible(k.mid) && (!solo || k.l.type === solo))
           .sort((a, b) => d3.geoDistance(a.mid, [-rot[0], -rot[1]]) - d3.geoDistance(b.mid, [-rot[0], -rot[1]]));
+        const placed = [];                                     // keep pictures from piling on each other
         order.forEach((k, n) => {
           const p = proj(k.mid), draw = k.l.sign === false ? null : SIGNS[k.l.type];
           if (!draw) return;
           const conf = k.l.confidence === "high" ? 1 : k.l.confidence === "low" ? .7 : .85;
           const s = (opt.compact ? 1.05 : 1.15) * conf * Math.min(1.6, Math.max(.8, zoom));
+          const crowded = k.i !== focused && placed.some(q => Math.abs(q[0] - p[0]) < 84 * s && Math.abs(q[1] - p[1]) < 56 * s);
+          if (crowded) {                                       // too close to a bigger picture: a small dot instead
+            const w0 = WORDS[k.l.type];
+            ctx.globalAlpha = focused >= 0 && focused !== k.i ? .35 : .95;
+            ctx.fillStyle = k.l.color || (opt.colors || {})[k.l.type] || "#d4af37";
+            ctx.beginPath(); ctx.arc(p[0], p[1], 9, 0, TAU); ctx.fill();
+            if (w0) { ctx.font = "11px sans-serif"; ctx.textAlign = "center"; ctx.fillText(w0[0], p[0], p[1] + 4); }
+            ctx.globalAlpha = 1;
+            hitSigns.push({i: k.i, x: p[0], y: p[1], r: 12});
+            return;
+          }
+          placed.push(p);
           const alive = n < MAX_ANIMATED && !reduced;
           ctx.save(); ctx.translate(p[0], p[1] - 10 * s);
           ctx.globalAlpha = (focused >= 0 && focused !== k.i ? .35 : 1) * (k.l.confidence === "low" ? .75 : 1);
           ctx.fillStyle = th.halo; ctx.beginPath(); ctx.ellipse(0, 2 * s, 26 * s, 20 * s, 0, 0, TAU); ctx.fill();
           ctx.scale(s, s); draw(ctx, alive ? t + k.i * .37 : 0);
           ctx.restore();
+          const w = WORDS[k.l.type];
+          if (w && !k.l.title?.includes("$")) {  // a word under the picture: "⚔️ Urush"
+            const label = `${w[0]} ${w[1]}`, y = p[1] + 14 * s;
+            ctx.font = "700 11.5px Inter, sans-serif"; ctx.textAlign = "center";
+            const tw = ctx.measureText(label).width + 12;
+            ctx.globalAlpha = focused >= 0 && focused !== k.i ? .35 : .95;
+            ctx.fillStyle = k.l.color || (opt.colors || {})[k.l.type] || "#d4af37";
+            ctx.beginPath(); ctx.roundRect(p[0] - tw / 2, y - 9, tw, 18, 9); ctx.fill();
+            ctx.fillStyle = "#fff"; ctx.fillText(label, p[0], y + 4); ctx.globalAlpha = 1;
+            captions.push([p[0], y, tw]);
+          }
           if (!opt.compact) {                                   // its number, as in the side list
             ctx.fillStyle = k.l.color || (opt.colors || {})[k.l.type] || "#d4af37";
             ctx.beginPath(); ctx.arc(p[0] + 22 * s, p[1] - 24 * s, 7, 0, TAU); ctx.fill();
@@ -245,6 +291,7 @@
         const c = opt.coords[iso]; if (!c) continue;
         const ll = [c[1], c[0]]; if (!visible(ll)) continue;
         const p = proj(ll), label = (opt.names || {})[iso] || iso;
+        if (iso !== hover && captions.some(q => Math.abs(q[0] - p[0]) < q[2] / 2 + 30 && Math.abs(q[1] - p[1] - 14) < 16)) continue;
         ctx.lineWidth = 3; ctx.strokeStyle = th.halo; ctx.strokeText(label, p[0], p[1] + 14);
         ctx.fillStyle = th.text; ctx.fillText(label, p[0], p[1] + 14);
       }
@@ -271,7 +318,7 @@
         zoom = anim.z0 + (anim.z1 - anim.z0) * e;
         if (k >= 1) anim = null;
       } else if (!dragging && !reduced && focused < 0 && !focusIso && now - idleSince > 3500) {
-        rot = [rot[0] + dt * 6, rot[1], 0];                     // slow turn when nobody is touching it
+        if (!hover && !overSign) rot = [rot[0] + dt * 3.5, rot[1], 0];  // a slow turn while nobody is touching it
       }
       draw(now);
       if (!document.hidden) requestAnimationFrame(frame); else paused = true;
@@ -307,14 +354,19 @@
       }
       const ll = proj.invert(p), f = ll && d3.geoDistance(ll, [-rot[0], -rot[1]]) < Math.PI / 2 ? geo.find(f => d3.geoContains(f, ll)) : null;
       hover = f ? isoOf(f) || null : null;
-      canvas.style.cursor = hitSigns.some(h => Math.hypot(h.x - p[0], h.y - p[1]) < h.r) || hover ? "pointer" : "grab";
+      overSign = hitSigns.some(h => Math.hypot(h.x - p[0], h.y - p[1]) < h.r);
+      canvas.style.cursor = overSign || hover ? "pointer" : "grab";
     });
-    canvas.addEventListener("pointerleave", () => { hover = null; });
+    canvas.addEventListener("pointerleave", () => { hover = null; overSign = false; });
     canvas.addEventListener("pointerup", e => {
       const d = dragging; dragging = null; idleSince = performance.now();
       if (!d || d.moved) return;
       const p = pt(e), sign = hitSigns.find(h => Math.hypot(h.x - p[0], h.y - p[1]) < h.r);
-      if (sign && opt.onLink) { opt.onLink(sign.i); return; }
+      hideHint();
+      if (sign) {
+        if (opt.card) showCard(sign.i); else if (opt.onLink) opt.onLink(sign.i);
+        return;
+      }
       if (hover && opt.onCountry) opt.onCountry(hover);
     });
     canvas.addEventListener("wheel", e => {
@@ -331,6 +383,49 @@
     }, {passive: true});
     canvas.addEventListener("touchend", () => { pinch = null; lastTouch = performance.now(); }, {passive: true});
 
+    // the legend: only the kinds on the globe right now; a click shows just that kind
+    const box = canvas.parentNode;
+    const legend = document.createElement("div"); legend.className = "globe-legend"; box.appendChild(legend);
+    function paintLegend() {
+      const counts = {};
+      for (const k of links) if (WORDS[k.l.type] && !k.l.title?.includes("$")) counts[k.l.type] = (counts[k.l.type] || 0) + 1;
+      legend.innerHTML = "";
+      legend.hidden = !Object.keys(counts).length;
+      for (const [type, n] of Object.entries(counts).sort((a, b) => b[1] - a[1])) {
+        const b = document.createElement("button");
+        b.type = "button";
+        b.className = solo === type ? "solo" : solo ? "off" : "";
+        b.title = EXPLAIN[type] + " Bosing — faqat shularni ko'rsatadi.";
+        b.innerHTML = `<i style="background:${(opt.colors || {})[type] || "#d4af37"}"></i>${WORDS[type][0]} ${WORDS[type][1]} · ${n}`;
+        b.onclick = () => { solo = solo === type ? null : type; paintLegend(); hideHint(); };
+        legend.appendChild(b);
+      }
+    }
+    // a hint for first-time visitors, gone after six seconds or the first touch
+    const hint = document.createElement("div"); hint.className = "globe-hint";
+    hint.textContent = links.length ? "👆 Aylantiring va rasmchani bosing" : "👆 Globusni barmoq bilan aylantiring";
+    box.appendChild(hint);
+    function hideHint() { hint.classList.add("gone"); }
+    setTimeout(hideHint, 6000);
+    canvas.addEventListener("pointerdown", hideHint, {once: true});
+    // a card that says in one breath what a sign means
+    const card = document.createElement("div"); card.className = "globe-card"; card.hidden = true; box.appendChild(card);
+    const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c]));
+    function showCard(i) {
+      const k = links.find(x => x.i === i); if (!k) return;
+      const l = k.l, w = WORDS[l.type] || ["🌍", l.type], nm = c => (opt.names || {})[c] || c;
+      focused = i;
+      card.innerHTML = `<button type="button" aria-label="Yopish">×</button>
+        <span class="kind" style="background:${(opt.colors || {})[l.type] || "#d4af37"}">${w[0]} ${w[1]}</span>
+        <div class="ttl">${esc(nm(l.from))} → ${esc(nm(l.to))}</div>
+        <div>${esc(l.bubble || l.title || "")}</div>
+        <div style="opacity:.8;margin-top:6px">💡 ${esc(EXPLAIN[l.type] || "")}</div>
+        ${opt.more ? `<div style="margin-top:8px"><a href="${opt.more(i)}">Batafsil →</a></div>` : ""}`;
+      card.hidden = false;
+      card.querySelector("button").onclick = () => { card.hidden = true; focused = -1; idleSince = performance.now(); };
+    }
+    paintLegend();
+
     addEventListener("resize", size);
     size();
     requestAnimationFrame(frame);
@@ -340,7 +435,7 @@
       clearFocus() { focused = -1; focusIso = null; idleSince = performance.now(); },
       focusCountry(iso) { focusIso = iso; const f = byIso[iso]; if (f) turnTo(d3.geoCentroid(f), Math.max(zoom, 1.5)); },
       setLayer(v) { layer = v; },
-      setLinks(list) { build(list); focused = -1; },
+      setLinks(list) { build(list); focused = -1; solo = null; card.hidden = true; paintLegend(); },
       setSigns(v) { signs = v; },
     };
   };

@@ -329,6 +329,9 @@ def tx():
             _last_used = time.monotonic()
 
 
+RETIRED = ["https://www.arabnews.com/rss.xml"]  # answers 403 to servers
+
+
 def init(default_sources: list[dict]) -> None:
     script = SCHEMA
     if IS_PG:
@@ -366,6 +369,12 @@ def init(default_sources: list[dict]) -> None:
             "INSERT INTO meta (key, value) VALUES ('seeded', ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value",
             (json.dumps(sorted(seeded)),),
         )
+        # defaults that turned out to refuse us: switched off once, the user can switch them back on
+        for value in RETIRED:
+            if c.execute("SELECT 1 FROM meta WHERE key = ?", (f"retired:{value}",)).fetchone():
+                continue
+            c.execute("UPDATE sources SET enabled = 0 WHERE value = ?", (value,))
+            c.execute("INSERT INTO meta (key, value) VALUES (?, '1') ON CONFLICT DO NOTHING", (f"retired:{value}",))
 
 
 def rows(sql: str, params: tuple | list = ()) -> list[dict]:

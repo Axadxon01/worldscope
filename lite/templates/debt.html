@@ -83,7 +83,7 @@
       <button id="go" {{ 'disabled' if not ai }}>{{ 'AI tahlilni yangilash' if r else 'AI tahlil: qarzdan keyin nima o\'zgardi' }}</button>
     </div>
     <p class="muted small" id="wait" hidden>Yangiliklar qidirilmoqda va AI tahlil yozmoqda: 30–90 soniya…</p>
-    {% if not ai %}<p class="warn">AI o'chiq: serverda GEMINI_API_KEY yoki ANTHROPIC_API_KEY kerak.</p>{% endif %}
+    {% if not ai %}<p class="warn">AI tahlili hozircha mavjud emas — tez orada qayta urinib ko'ring. Pastdagi raqamlar va yangiliklar baribir ko'rinadi.</p>{% endif %}
   </form>
 
   {% if r %}

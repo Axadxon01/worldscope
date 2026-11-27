@@ -18,6 +18,7 @@ DIGEST_UNTIL = 12  # ...until noon; a wake-up later in the day waits for the nex
 # name → minimum time between runs
 EVERY = {
     "refresh": timedelta(minutes=25),
+    "explain": timedelta(hours=2),
     "automap": timedelta(hours=20),
     "digest": timedelta(hours=20),
     "weekly": timedelta(days=6, hours=12),
@@ -25,7 +26,7 @@ EVERY = {
     "watch_risk": timedelta(hours=20),
     "predictions": timedelta(hours=20),
 }
-ORDER = ["refresh", "sanctions", "digest", "automap", "watch_risk", "predictions", "weekly"]
+ORDER = ["refresh", "explain", "sanctions", "digest", "automap", "watch_risk", "predictions", "weekly"]
 
 
 def last_runs() -> dict[str, datetime]:
