@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block title %}Hamkorlarni tekshirish · WorldScope{% endblock %}
+{% block body %}
+<header class="countryhead"><h1>🛡️ Hamkorlarni tekshirish</h1></header>
+<p class="lede">Xaridor, yetkazib beruvchi va banklaringiz ro'yxatini yuklang. Har bir nom AQSH (OFAC), BMT, Yevropa Ittifoqi
+  va Buyuk Britaniya sanksiya ro'yxatlarida tekshiriladi.{% if plan.auto %} Ro'yxat har hafta avtomatik qayta tekshiriladi va yangi
+  moslik chiqsa darhol xabar beramiz.{% endif %}</p>
+{% if msg %}<p class="ok">{{ msg }}</p>{% endif %}
+{% if error %}<p class="warn">{{ error }}</p>{% endif %}
+{% if not loaded %}<p class="warn">Sanksiya ro'yxatlari hali yuklanmagan — tekshiruv ular yuklangach ishlaydi.</p>{% endif %}
+
+<div class="planbox card">
+  <div><b>Tarifingiz: {{ plan.label }}</b>
+    <span class="muted small">— {{ plan.lists }} ta ro'yxat, har birida {{ plan['items'] }} tagacha nom{% if plan.auto %}, haftalik avtomatik tekshiruv va ogohlantirish{% else %}, tekshiruv qo'lda{% endif %}, tekshirish havolali hisobot</span></div>
+  {% if plan.key != "business" %}<a class="btnlink" href="/business">Biznes tarifi →</a>{% endif %}
+</div>
+
+{% if lists %}
+<h2>Ro'yxatlaringiz</h2>
+<div class="tablewrap"><table class="facts">
+  <thead><tr><th>Ro'yxat</th><th>Nomlar</th><th>🔴 Mos keldi</th><th>🟡 Ko'rib chiqing</th><th>🟢 Topilmadi</th><th>Oxirgi tekshiruv</th></tr></thead>
+  <tbody>{% for l in lists %}
+    <tr><td><a href="/screening/{{ l.id }}"><b>{{ l.name }}</b></a></td><td>{{ l.total }}</td>
+      <td>{{ l.counts.get('match', 0) or '—' }}</td><td>{{ l.counts.get('review', 0) or '—' }}</td><td>{{ l.counts.get('clear', 0) }}</td>
+      <td class="small">{{ l.checked|ago if l.checked else "tekshirilmoqda…" }}</td></tr>
+  {% endfor %}</tbody>
+</table></div>
+{% endif %}
+
+{% if lists|length < plan.lists %}
+<section class="card">
+  <h3>{{ "Yangi ro'yxat" if lists else "Birinchi ro'yxatingiz" }}</h3>
+  <form method="post" action="/screening/lists" enctype="multipart/form-data" class="stack">
+    <label>Ro'yxat nomi<input name="name" maxlength="80" placeholder="Masalan: Xaridorlar 2026"></label>
+    <label>Nomlarni yozing — har qatorda bittadan; xohlasangiz nuqtali vergul bilan davlat va izoh
+      <textarea name="text" rows="6" placeholder="Uzbek Trade MCHJ; O'zbekiston&#10;Rosoboronexport; Rossiya; ehtiyot qism&#10;Ivan Petrov"></textarea></label>
+    <label>yoki fayl yuklang: Excel (.xlsx) yoki CSV — 1-ustun nomi, 2-ustun davlat, 3-ustun izoh
+      <input type="file" name="file" accept=".xlsx,.csv,.txt,.tsv"></label>
+    <button>Tekshirish</button>
+  </form>
+</section>
+{% endif %}
+
+<p class="warn small">⚖️ Nom mos kelishi — bu hamkor ro'yxatda ekanini anglatmaydi: bir xil nomli boshqa shaxs bo'lishi mumkin.
+  Har bir moslikni tug'ilgan sana, manzil, ro'yxatdan o'tish raqami bilan rasmiy manbada tekshiring. WorldScope yuridik maslahat bermaydi
+  va qaror uchun javobgar emas.</p>
+{% endblock %}

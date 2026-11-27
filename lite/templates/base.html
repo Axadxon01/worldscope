@@ -31,9 +31,9 @@
 {% set path = request.url.path %}
 {% if path == "/" %}{% include "_intro.html" %}
 <script src="{{ asset('intro.js') }}"></script>{% endif %}
-{% set tool_paths = ["/tools", "/news", "/pair", "/risk", "/debt", "/framing", "/predictions", "/brief", "/quiz", "/sources"] %}
+{% set tool_paths = ["/tools", "/news", "/pair", "/risk", "/debt", "/framing", "/predictions", "/brief", "/quiz", "/sources", "/business"] %}
 {% set main_items = [("/", "📰", "Bugun"), ("/map", "🌐", "Globus"), ("/country", "🏳️", "Davlatlar"), ("/sanctions", "📁", "Sanksiyalar"), ("/tools", "🧰", "Tahlil"), ("/watch", "📌", "Mening")] %}
-{% macro is_on(href) %}{{ 'on' if path == href or (href != '/' and path.startswith(href + '/')) or (href == '/tools' and path in tool_paths) }}{% endmacro %}
+{% macro is_on(href) %}{{ 'on' if path == href or (href != '/' and path.startswith(href + '/')) or (href == '/tools' and (path in tool_paths or path.startswith(('/screening', '/business')))) }}{% endmacro %}
 <header class="top">
   <a class="brand" href="/"><span class="crest" aria-hidden="true">⚜</span>World<b>Scope</b></a>
   <nav id="mainnav" aria-label="{{ _("Bo'limlar") }}">
@@ -65,14 +65,14 @@
     {% elif path not in ("/login", "/register") %}<a class="btnlink ghostlink signin" href="/login?next={{ path|urlencode }}">{{ _("Kirish") }}</a>{% endif %}
   </form>
 </header>
-<main id="main" tabindex="-1" class="{% block mainclass %}{% endblock %}">{% if ui_lang() == "ru" and (path.startswith(("/pair", "/risk", "/debt", "/framing", "/predictions", "/brief", "/sanctions", "/country", "/map", "/watch", "/account", "/admin", "/sources"))) %}<p class="langnote">{{ _("Bu bo'lim hozircha faqat o'zbek tilida.") }}</p>{% endif %}{% block body %}{% endblock %}</main>
+<main id="main" tabindex="-1" class="{% block mainclass %}{% endblock %}">{% if ui_lang() == "ru" and (path.startswith(("/pair", "/risk", "/debt", "/framing", "/predictions", "/brief", "/sanctions", "/country", "/map", "/watch", "/account", "/admin", "/sources", "/screening", "/business", "/verify"))) %}<p class="langnote">{{ _("Bu bo'lim hozircha faqat o'zbek tilida.") }}</p>{% endif %}{% block body %}{% endblock %}</main>
 <nav class="bottomnav" aria-label="{{ _("Asosiy bo'limlar") }}">
   {% for href, icon, label in main_items %}
   <a href="{{ href }}" class="{{ is_on(href) }}"><span>{{ icon }}</span>{{ _(label) }}</a>{% endfor %}
 </nav>
 <div id="aiwait" hidden><div class="hg" aria-hidden="true">⏳</div><p>AI o'ylayapti… <span id="secs">0</span> s</p><p class="muted small">Odatda 20–60 soniya</p></div>
 <footer>{{ _("WorldScope yangiliklarni o'zi yozmaydi: sarlavha, qisqa matn va havola saqlanadi, to'liq matn manbaning o'zida.") }}
-  · <a href="/feedback?page={{ path|urlencode }}">{{ _("Xato topdingizmi?") }}</a>{% if admin %} · Ma'lumotlar: {{ db_where() }}{% endif %}</footer>
+  · <a href="/business">{{ _("Biznes uchun") }}</a> · <a href="/feedback?page={{ path|urlencode }}">{{ _("Xato topdingizmi?") }}</a>{% if admin %} · Ma'lumotlar: {{ db_where() }}{% endif %}</footer>
 <script id="glossary" type="application/json">{{ glossary_json }}</script>
 <script src="{{ asset('ui.js') }}"></script>
 </body>

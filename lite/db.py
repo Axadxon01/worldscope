@@ -228,6 +228,46 @@ CREATE TABLE IF NOT EXISTS push_subs (
     created     TEXT NOT NULL,
     fails       INTEGER NOT NULL DEFAULT 0
 );
+CREATE TABLE IF NOT EXISTS screen_lists (
+    id          INTEGER PRIMARY KEY,
+    user_id     INTEGER NOT NULL,
+    name        TEXT NOT NULL,
+    created     TEXT NOT NULL,
+    checked     TEXT,
+    auto        INTEGER NOT NULL DEFAULT 1     -- re-checked every week (business plan)
+);
+CREATE TABLE IF NOT EXISTS screen_items (
+    id          INTEGER PRIMARY KEY,
+    list_id     INTEGER NOT NULL,
+    name        TEXT NOT NULL,
+    country     TEXT NOT NULL DEFAULT '',
+    note        TEXT NOT NULL DEFAULT '',
+    status      TEXT NOT NULL DEFAULT 'new',   -- new | clear | review | match
+    hits        TEXT NOT NULL DEFAULT '[]',    -- JSON: the best list entries, with scores
+    dismissed   TEXT NOT NULL DEFAULT '{}',    -- JSON {"LIST:uid": "who, when, why"}: reviewed, not the same party
+    checked     TEXT
+);
+CREATE INDEX IF NOT EXISTS screen_items_list ON screen_items (list_id);
+CREATE TABLE IF NOT EXISTS screen_reports (
+    id          INTEGER PRIMARY KEY,
+    code        TEXT NOT NULL UNIQUE,          -- the public verification code
+    list_id     INTEGER NOT NULL,
+    user_id     INTEGER NOT NULL,
+    created     TEXT NOT NULL,
+    data        TEXT NOT NULL,                 -- JSON snapshot of the report as issued
+    digest      TEXT NOT NULL                  -- SHA-256 of data
+);
+CREATE TABLE IF NOT EXISTS leads (
+    id          INTEGER PRIMARY KEY,
+    created     TEXT NOT NULL,
+    company     TEXT NOT NULL,
+    person      TEXT NOT NULL DEFAULT '',
+    contact     TEXT NOT NULL,
+    need        TEXT NOT NULL DEFAULT '',
+    size        TEXT NOT NULL DEFAULT '',
+    who         TEXT NOT NULL DEFAULT '',
+    done        INTEGER NOT NULL DEFAULT 0
+);
 CREATE TABLE IF NOT EXISTS ai_usage (
     day         TEXT PRIMARY KEY,       -- YYYY-MM-DD, UTC
     calls       INTEGER NOT NULL DEFAULT 0
@@ -239,6 +279,7 @@ MIGRATIONS = [
     "ALTER TABLE pairs ADD COLUMN c TEXT NOT NULL DEFAULT ''",
     "ALTER TABLE articles ADD COLUMN emb TEXT",  # JSON meaning vector of the headline (embed.py)
     "ALTER TABLE maps ADD COLUMN auto INTEGER NOT NULL DEFAULT 0",  # 1 = made by the daily schedule
+    "ALTER TABLE users ADD COLUMN plan TEXT NOT NULL DEFAULT 'free'",  # free | business (screening limits)
 ]
 
 

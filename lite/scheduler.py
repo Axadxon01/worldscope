@@ -26,8 +26,20 @@ EVERY = {
     "watch_risk": timedelta(hours=20),
     "predictions": timedelta(hours=20),
     "backup": timedelta(days=6, hours=20),
+    "screening": timedelta(days=6, hours=20),
 }
-ORDER = ["refresh", "explain", "sanctions", "digest", "automap", "watch_risk", "predictions", "weekly", "backup"]
+ORDER = [
+    "refresh",
+    "explain",
+    "sanctions",
+    "screening",
+    "digest",
+    "automap",
+    "watch_risk",
+    "predictions",
+    "weekly",
+    "backup",
+]
 
 
 def last_runs() -> dict[str, datetime]:

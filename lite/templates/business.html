@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block title %}Biznes uchun: hamkorlarni sanksiyalarda tekshirish · WorldScope{% endblock %}
+{% block desc %}Xaridor va yetkazib beruvchilaringizni OFAC, BMT, Yevropa Ittifoqi va Buyuk Britaniya sanksiya ro'yxatlarida avtomatik tekshiring: haftalik qayta tekshiruv, ogohlantirish va tekshirish havolali hisobot.{% endblock %}
+{% block body %}
+<section class="bizhero">
+  <h1>Hamkoringiz sanksiya ro'yxatidami?<br><span>Bir daqiqada bilib oling — va har hafta qayta biling.</span></h1>
+  <p class="lede">O'zbekistonlik kompaniya sanksiyadagi hamkor bilan ishlasa — to'lov to'xtaydi, bank hisobni yopadi, yuk chegarada qoladi.
+    Ikkilamchi sanksiyalar uchinchi davlat kompaniyalarini ham qamrab oladi. WorldScope hamkorlaringizni {{ "{:,}".format(totals.all).replace(",", " ") }} ta yozuvli
+    to'rtta rasmiy ro'yxatda tekshiradi va ro'yxatlar o'zgarganda sizga xabar beradi.</p>
+  <p class="row"><a class="btnlink" href="/screening">Bepul sinab ko'rish</a> <a class="btnlink ghostlink" href="#sorov">Biznes tarifi bo'yicha so'rov</a></p>
+</section>
+
+<h2>Qanday ishlaydi</h2>
+<div class="toolgrid">
+  <div class="toolcard"><span class="ti">📥</span><b>1. Ro'yxatni yuklang</b><small>Excel, CSV yoki shunchaki nomlarni yozing: kompaniya, egasi, banki. Davlatni ham ko'rsatsangiz, aniqroq.</small></div>
+  <div class="toolcard"><span class="ti">🔎</span><b>2. Natijani oling</b><small>Har bir nom: 🔴 mos keldi, 🟡 ko'rib chiqing yoki 🟢 topilmadi. Lotin, kirill va inglizcha yozuvlar, muqobil nomlar hisobga olinadi.</small></div>
+  <div class="toolcard"><span class="ti">🔔</span><b>3. Biz kuzatib turamiz</b><small>Har hafta ro'yxatlar yangilangach qayta tekshiramiz. Hamkoringiz ro'yxatga tushsa — Telegram, brauzer va saytda darhol ogohlantirish.</small></div>
+  <div class="toolcard"><span class="ti">📄</span><b>4. Hisobot</b><small>Sanali, raqamli hisobot: bank yoki hamkor uni {{ public_url }}/verify/… havolasi orqali haqiqiyligini tekshira oladi.</small></div>
+</div>
+
+<h2>Tariflar</h2>
+<div class="tablewrap"><table class="facts plans">
+  <thead><tr><th></th><th>Bepul</th><th>Biznes</th></tr></thead>
+  <tbody>
+    <tr><td>Ro'yxatlar</td><td>{{ PLANS.free.lists }}</td><td>{{ PLANS.business.lists }}</td></tr>
+    <tr><td>Bitta ro'yxatda nomlar</td><td>{{ PLANS.free['items'] }}</td><td>{{ PLANS.business['items'] }}</td></tr>
+    <tr><td>OFAC, BMT, YI, Buyuk Britaniya</td><td>✅</td><td>✅</td></tr>
+    <tr><td>Haftalik avtomatik qayta tekshiruv</td><td>—</td><td>✅</td></tr>
+    <tr><td>Yangi moslik haqida ogohlantirish</td><td>—</td><td>✅ Telegram, brauzer, sayt</td></tr>
+    <tr><td>"Boshqa shaxs" belgilash va izoh</td><td>✅</td><td>✅</td></tr>
+    <tr><td>Tekshirish havolali hisobot, Excel eksport</td><td>✅</td><td>✅</td></tr>
+    <tr><td>Narx</td><td>Bepul</td><td>Kompaniya hajmiga qarab — so'rov qoldiring</td></tr>
+  </tbody>
+</table></div>
+
+<h2>Ko'p so'raladigan savollar</h2>
+<details class="faq"><summary>Ma'lumotlar qayerdan olinadi?</summary><p>AQSH Moliya vazirligi (OFAC SDN), BMT Xavfsizlik Kengashi, Yevropa Ittifoqi va Buyuk Britaniyaning ochiq rasmiy ro'yxatlaridan, har hafta yangilanadi.</p></details>
+<details class="faq"><summary>"Mos keldi" degani hamkorim sanksiyada degani emasmi?</summary><p>Yo'q. Bu — nomlar o'xshash degani. Bir xil nomli boshqa kompaniya yoki odam bo'lishi mumkin. Tug'ilgan sana, manzil, ro'yxat raqami bilan rasmiy manbada tekshiring va kerak bo'lsa yurist yoki bank komplayens bo'limi bilan maslahatlashing. Tekshirgach, "Bu boshqa shaxs" deb belgilasangiz, u keyingi hisobotlarda izohi bilan ko'rinadi.</p></details>
+<details class="faq"><summary>Ro'yxatim kimga ko'rinadi?</summary><p>Faqat sizga. Tekshirish havolasi bank yoki hamkoringizga hisobot raqami, sanasi va natijalar sonini ko'rsatadi — nomlarni emas.</p></details>
+<details class="faq"><summary>Bu yuridik xizmatmi?</summary><p>Yo'q. WorldScope ommaviy ro'yxatlarni tez va muntazam tekshirish vositasi. Yakuniy qaror va javobgarlik — kompaniyaning o'zida.</p></details>
+
+<section class="card" id="sorov">
+  <h2>Biznes tarifi bo'yicha so'rov</h2>
+  {% if sent %}<p class="ok">Rahmat! So'rovingizni oldik — tez orada bog'lanamiz.</p>
+  {% else %}
+  <form method="post" action="/business/lead" class="stack">
+    <label class="hp" aria-hidden="true">Veb-sayt<input name="website" tabindex="-1" autocomplete="off"></label>
+    <label>Kompaniya nomi<input name="company" required maxlength="120"></label>
+    <label>Ismingiz<input name="person" maxlength="120"></label>
+    <label>Telefon, Telegram yoki email<input name="contact" required maxlength="160"></label>
+    <label>Taxminan nechta hamkorni tekshirish kerak?<select name="size"><option>50 gacha</option><option>50–200</option><option>200–1000</option><option>1000 dan ko'p</option></select></label>
+    <label>Nima kerakligini qisqacha yozing (ixtiyoriy)<textarea name="need" rows="3" maxlength="1500"></textarea></label>
+    <button>So'rov yuborish</button>
+  </form>
+  {% endif %}
+</section>
+<p class="muted small">WorldScope yuridik maslahat bermaydi. Natijalar ommaviy rasmiy ro'yxatlarga asoslanadi va qo'shimcha tekshiruvni talab qiladi.</p>
+{% endblock %}

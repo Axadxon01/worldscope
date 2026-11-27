@@ -30,6 +30,8 @@ def esc(text) -> str:
 
 
 PUBLIC_URL = os.environ.get("PUBLIC_URL", "https://worldscope-lite.onrender.com").rstrip("/")
+# A public channel (e.g. @worldscope_uz) gets the morning post when the bot is one of its administrators.
+CHANNEL = os.environ.get("TELEGRAM_CHANNEL", "").strip()
 ALERT_DELTA = int(os.environ.get("WS_ALERT_DELTA", "2"))
 
 

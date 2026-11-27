@@ -42,7 +42,8 @@
     <tbody>{% for name, every in EVERY.items() %}
       <tr><td>{{ {"refresh": "Yangiliklar", "automap": "Kunlik AI xaritasi", "digest": "Telegram digest", "weekly": "Juftliklar qayta tahlili",
                   "sanctions": "Sanksiya ro'yxatlari", "watch_risk": "Kuzatuv: xavf indeksi", "predictions": "Bashoratlar tekshiruvi",
-                  "explain": "Oddiy izohlar va tarjima", "backup": "Zaxira Telegramga"}.get(name, name) }}</td>
+                  "explain": "Oddiy izohlar va tarjima", "backup": "Zaxira Telegramga",
+                  "screening": "Hamkorlar qayta tekshiruvi"}.get(name, name) }}</td>
         <td class="small">{% if name == "digest" %}har kuni 07:00{% else %}{{ (every.total_seconds() / 3600)|round|int }} soat{% endif %}</td>
         <td class="small">{{ jobs[name].isoformat()|ago if name in jobs else "hali yo'q" }}</td>
         <td><form method="post" action="/admin/jobs"><input type="hidden" name="job" value="{{ name }}"><button class="ghost small">▶</button></form></td></tr>
@@ -75,6 +76,25 @@
   {% endfor %}</div>
   <p class="muted small">Oltin — yangi, yashil — qaytgan. Kimligi saqlanmaydi: faqat brauzer cookie'sining tuzli xeshi.</p>
   {% else %}<p class="muted small">Hali ma'lumot yo'q.</p>{% endif %}
+</section>
+
+<section class="card" id="tariflar">
+  <h3>Biznes so'rovlari va tariflar</h3>
+  {% if leads %}
+  <ul class="plain fb">{% for l in leads %}
+    <li class="{{ 'done' if l.done }}"><div class="small muted">{{ l.created[:16].replace('T', ' ') }} · {{ l.size }}{% if l.who %} · akkaunt: {{ l.who }}{% endif %}</div>
+      <div><b>{{ l.company }}</b>{% if l.person %} — {{ l.person }}{% endif %} · {{ l.contact }}</div>
+      {% if l.need %}<div class="small">{{ l.need }}</div>{% endif %}
+      {% if not l.done %}<form method="post" action="/admin/leads/{{ l.id }}/done"><button class="ghost small">✓ Bog'lanildi</button></form>{% endif %}</li>
+  {% endfor %}</ul>
+  {% else %}<p class="muted small">Hali so'rov yo'q. Biznes sahifasi: <a href="/business">/business</a></p>{% endif %}
+  <form method="post" action="/admin/plan" class="pickrow" style="margin-top:10px">
+    <input name="username" placeholder="foydalanuvchi logini" required>
+    <select name="plan">{% for k, p in PLANS.items() %}<option value="{{ k }}">{{ p.label }}</option>{% endfor %}</select>
+    <button>Tarifni o'rnatish</button>
+  </form>
+  {% if paying %}<p class="small">Biznes tarifida: {% for u in paying %}<b>{{ u.username }}</b>{{ ', ' if not loop.last }}{% endfor %}</p>{% endif %}
+  <p class="muted small">To'lovni qabul qilgach (shartnoma yoki hisob-faktura bo'yicha), shu yerda tarifni yoqing.</p>
 </section>
 
 <section class="card" id="xabarlar">

@@ -104,7 +104,7 @@ def _page(browser, base, mobile=False):
 
 
 PAGES = ["/", "/news", "/map", "/map?c=UZB", "/country/UZB", "/sanctions", "/risk", "/tools", "/quiz",
-         "/predictions", "/login", "/register", "/feedback"]  # fmt: skip
+         "/predictions", "/login", "/register", "/feedback", "/business", "/screening"]  # fmt: skip
 
 
 def test_pages_render_without_script_errors(site, browser):
