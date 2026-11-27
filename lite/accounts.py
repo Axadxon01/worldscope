@@ -103,11 +103,11 @@ def create(username: str, password: str, role: str = "user") -> dict:
 
 
 def get(user_id: int) -> dict | None:
-    return db.one("SELECT id, username, role, created, last_login, tg_chat FROM users WHERE id = ?", (user_id,))
+    return db.one("SELECT id, username, role, created, last_login, tg_chat, plan FROM users WHERE id = ?", (user_id,))
 
 
 def list_users() -> list[dict]:
-    return db.rows("SELECT id, username, role, created, last_login, tg_chat FROM users ORDER BY id")
+    return db.rows("SELECT id, username, role, created, last_login, tg_chat, plan FROM users ORDER BY id")
 
 
 def delete(user_id: int) -> None:

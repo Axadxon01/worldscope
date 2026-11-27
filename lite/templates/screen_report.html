@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %}Tekshiruv hisoboti № {{ r.code }} · WorldScope{% endblock %}
+{% block body %}
+<article class="report">
+  <div class="row noprint"><a href="/screening/{{ r.list_id }}">← Ro'yxatga qaytish</a>
+    <button type="button" data-pdf="WorldScope tekshiruv hisoboti {{ r.code }}">📄 PDF qilib saqlash</button></div>
+  <header class="rephead">
+    <div class="brand">⚜ World<b>Scope</b></div>
+    <h1>Sanksiya ro'yxatlari bo'yicha tekshiruv hisoboti</h1>
+    <table class="facts small-t">
+      <tr><th>Hisobot raqami</th><td><b>{{ r.code }}</b></td></tr>
+      <tr><th>Berilgan sana</th><td>{{ d.issued[:16].replace('T', ' ') }} UTC</td></tr>
+      <tr><th>Ro'yxat</th><td>{{ d.list }} ({{ d['items']|length }} ta nom)</td></tr>
+      <tr><th>Buyurtmachi akkaunt</th><td>{{ d.owner }}</td></tr>
+      <tr><th>Tekshirilgan ro'yxatlar</th><td>{% for k, v in d.sources.items() %}{{ LISTS[k].label if k in LISTS else k }}: {{ v.count }} yozuv, {{ (v.updated or '')[:10] }}{{ '; ' if not loop.last }}{% endfor %}</td></tr>
+      <tr><th>Natija</th><td>🔴 {{ d.counts['match'] }} mos keldi · 🟡 {{ d.counts['review'] }} ko'rib chiqish kerak · 🟢 {{ d.counts['clear'] }} topilmadi</td></tr>
+      <tr><th>Haqiqiyligini tekshirish</th><td>{{ public_url }}/verify/{{ r.code }}<br><span class="muted small">SHA-256: {{ r.digest }}</span></td></tr>
+    </table>
+  </header>
+  <table class="facts small-t">
+    <thead><tr><th>#</th><th>Hamkor</th><th>Natija</th><th>Ro'yxatdagi eng yaqin yozuvlar</th></tr></thead>
+    <tbody>{% for it in d['items'] %}
+      <tr class="st-{{ it.status }}"><td>{{ loop.index }}</td><td><b>{{ it.name }}</b>{% if it.country %} <span class="muted">({{ uzname(it.country) }})</span>{% endif %}</td>
+        <td>{{ STATUS[it.status] }}</td>
+        <td>{% for h in it.hits %}<div>{{ h.name }} — {{ h.list }} {{ h.uid }}, moslik {{ (100 * h.score)|round|int }}%{% if h.dismissed %}<br><i>Ko'rib chiqilgan, boshqa shaxs: {{ h.dismissed }}</i>{% endif %}</div>{% else %}—{% endfor %}</td></tr>
+    {% endfor %}</tbody>
+  </table>
+  <p class="small"><b>Uslub.</b> Har bir nom tashkiliy-huquqiy shakli (MChJ, LLC, OOO va h.k.) olib tashlangan holda rasmiy ro'yxatlardagi asosiy
+    va muqobil nomlar bilan solishtirildi (lotin va kirill yozuvi, so'zlar tartibi hisobga olinmaydi). 92% va undan yuqori moslik — "mos keldi",
+    75–92% — "ko'rib chiqing", undan past o'xshashliklar ko'rsatilmaydi.</p>
+  <p class="small"><b>Muhim.</b> Bu hisobot sanalgan kundagi ommaviy ro'yxatlar holatini aks ettiradi va yuridik xulosa emas. Nom mosligi shaxs yoki tashkilot
+    ro'yxatda ekanini anglatmaydi; "mos keldi" va "ko'rib chiqing" natijalari rasmiy manbada qo'shimcha ma'lumotlar bilan tekshirilishi shart.
+    "Topilmadi" natijasi kelajakda ro'yxatga kiritilmasligini kafolatlamaydi.</p>
+</article>
+{% endblock %}

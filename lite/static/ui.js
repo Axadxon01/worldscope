@@ -52,7 +52,14 @@
     const G = JSON.parse(document.getElementById("glossary")?.textContent || "{}");
     const words = Object.keys(G).sort((a, b) => b.length - a.length);
     const esc = w => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const re = new RegExp("(^|[^\\p{L}])(" + words.map(esc).join("|") + ")", "iu");
+    // abbreviations (AI, BMT, OFAC) must stand alone and keep their case — "AI" is not the start of "Air";
+    // ordinary words may take Uzbek endings (sanksiya-lar), so only their start is matched
+    const acr = words.filter(w => w === w.toUpperCase()), plain = words.filter(w => w !== w.toUpperCase());
+    const never = /(?!)/;
+    const reA = acr.length ? new RegExp("(^|[^\\p{L}])(" + acr.map(esc).join("|") + ")(?![\\p{L}])", "u") : never;
+    const reW = plain.length ? new RegExp("(^|[^\\p{L}])(" + plain.map(esc).join("|") + ")", "iu") : never;
+    const first = t => { const a = t.match(reA), b = t.match(reW); return !a ? b : !b ? a : a.index <= b.index ? a : b; };
+    const re = {test: t => reA.test(t) || reW.test(t)};
     const seen = new Set(), skip = "A,BUTTON,INPUT,SELECT,OPTION,TEXTAREA,SCRIPT,STYLE,CODE,SUMMARY,LABEL,H1,TH,svg,CANVAS".split(",");
     const main = document.querySelector("main");
     const walker = main && document.createTreeWalker(main, NodeFilter.SHOW_TEXT, {acceptNode: n => {
@@ -66,7 +73,7 @@
     let made = 0;
     for (const n of nodes) {
       if (made >= 30) break;
-      const m = n.data.match(re);
+      const m = first(n.data);
       if (!m) continue;
       const word = m[2], k = words.find(w => w.toLowerCase() === word.toLowerCase());
       if (!k || seen.has(k)) continue;

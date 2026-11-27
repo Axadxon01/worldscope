@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block title %}Hisobotni tekshirish · WorldScope{% endblock %}
+{% block body %}
+<section class="login card">
+  <h1>Hisobotni tekshirish</h1>
+  {% if r and r.valid %}
+  <p class="ok">✅ № <b>{{ r.code }}</b> hisobot haqiqiy va berilgandan beri o'zgartirilmagan.</p>
+  <table class="facts small-t">
+    <tr><th>Berilgan</th><td>{{ r.data.issued[:16].replace('T', ' ') }} UTC</td></tr>
+    <tr><th>Ro'yxat</th><td>{{ r.data.list }} — {{ r.data['items']|length }} ta nom</td></tr>
+    <tr><th>Natija</th><td>🔴 {{ r.data.counts['match'] }} · 🟡 {{ r.data.counts['review'] }} · 🟢 {{ r.data.counts['clear'] }}</td></tr>
+    <tr><th>SHA-256</th><td class="small" style="word-break:break-all">{{ r.digest }}</td></tr>
+  </table>
+  <p class="muted small">Hamkorlar nomlari maxfiylik uchun bu yerda ko'rsatilmaydi: qo'lingizdagi hisobotdagi raqam, sana va natijalar shu bilan
+    mos kelishini solishtiring.</p>
+  {% elif r %}
+  <p class="warn">⚠️ Bu raqamli hisobot bor, lekin saqlangan nusxasi o'zgartirilgan ko'rinadi. Hisobot beruvchidan qayta so'rang.</p>
+  {% else %}
+  <p class="warn">❌ "{{ code }}" raqamli hisobot topilmadi. Raqamni tekshiring.</p>
+  {% endif %}
+  <p class="small"><a href="/business">WorldScope hamkorlarni tekshirish xizmati →</a></p>
+</section>
+{% endblock %}

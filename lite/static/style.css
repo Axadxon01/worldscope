@@ -653,3 +653,29 @@ a:focus-visible, button:focus-visible, summary:focus-visible, select:focus-visib
 .skip:focus { top: 8px; }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; } }
 main:focus { outline: none; }
+/* partner screening */
+.planbox { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+.screensum { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin: 10px 0; }
+.screensum div { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; }
+.screensum b { display: block; font-size: 28px; line-height: 1.1; }
+.screensum span { color: var(--muted); font-size: 13px; }
+.screensum .s-match { border-left: 4px solid var(--bad); } .screensum .s-review { border-left: 4px solid #e0a800; } .screensum .s-clear { border-left: 4px solid var(--good); }
+.verdict.v-match { background: var(--bad); color: #fff; } .verdict.v-review { background: #e0a800; color: #1a1305; }
+.verdict.v-clear { background: var(--good); color: #fff; } .verdict.v-new { background: var(--line); color: var(--ink); }
+.verdict { display: inline-block; padding: 1px 9px; border-radius: 99px; font-size: 12px; font-weight: 700; white-space: nowrap; }
+.screentable .hit { padding: 4px 0; border-bottom: 1px dashed var(--line); }
+.screentable .hit:last-child { border-bottom: 0; }
+.screentable .hit.off { opacity: .55; }
+form.inline { display: inline-flex; gap: 6px; align-items: center; margin-top: 3px; flex-wrap: wrap; }
+form.inline input { padding: 3px 8px; font-size: 12px; }
+.report { max-width: 900px; margin: 0 auto; }
+.rephead .brand { font-size: 22px; }
+.report h1 { font-size: 28px; }
+.bizhero { padding: 10px 0 6px; }
+.bizhero h1 { font-size: 36px; line-height: 1.2; }
+.bizhero h1 span { color: var(--gold); font-size: .7em; }
+.faq { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px 14px; margin: 8px 0; }
+.faq summary { cursor: pointer; font-weight: 600; }
+table.plans td:not(:first-child), table.plans th:not(:first-child) { text-align: center; }
+@media print { .report .facts tr.st-match td { background: #fde8e6 !important; } .report .facts tr.st-review td { background: #fff4d6 !important; } }
+@media print { .rephead .brand { display: none; } }

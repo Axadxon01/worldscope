@@ -223,3 +223,43 @@ def digest_text(groups: list[list[dict]], countries: list[str], topics: list[str
             out.append(f"  🇺🇿 {html.escape(line['why'])}")
     out.append(f"\nQiziqishlarni o'zgartirish: {base}/#prefs")
     return "\n".join(out)
+
+
+def channel_text(groups: list[list[dict]], lines: dict, key, base: str, bot: str = "", n: int = 5) -> str:
+    """The public channel's morning post: the day's biggest stories in plain Uzbek, each with its page."""
+    import html
+
+    big = [g for g in groups if len({a["publisher"] for a in g}) >= 2][:n]
+    if not big:
+        return ""
+    today = datetime.now(UTC) + timedelta(hours=5)
+    months = [
+        "yanvar",
+        "fevral",
+        "mart",
+        "aprel",
+        "may",
+        "iyun",
+        "iyul",
+        "avgust",
+        "sentabr",
+        "oktabr",
+        "noyabr",
+        "dekabr",
+    ]
+    out = [f"🌍 <b>Bugun dunyoda — {today.day}-{months[today.month - 1]}</b>", ""]
+    for g in big:
+        line = lines.get(key(g)) or {}
+        emoji = line.get("emoji") or "•"
+        out.append(f"{emoji} <b>{html.escape(headline(g, lines, key))}</b>")
+        if line.get("simple"):
+            out.append(html.escape(line["simple"]))
+        if line.get("why"):
+            out.append(f"🇺🇿 {html.escape(line['why'])}")
+        out.append(f'<a href="{base}/story/{g[0]["id"]}">Batafsil →</a>')
+        out.append("")
+    tail = f"🌐 {base}"
+    if bot:
+        tail += f" · 🤖 @{bot} — shaxsiy dayjest"
+    out.append(tail)
+    return "\n".join(out)

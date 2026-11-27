@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+{% block title %}{{ lst.name }} · Hamkorlarni tekshirish{% endblock %}
+{% block head %}{% if running %}<meta http-equiv="refresh" content="4">{% endif %}{% endblock %}
+{% block body %}
+<p class="crumbs small"><a href="/screening">Hamkorlarni tekshirish</a> › {{ lst.name }}</p>
+<header class="countryhead"><h1>{{ lst.name }}</h1></header>
+{% if msg %}<p class="ok">{{ msg }}</p>{% endif %}
+{% if error %}<p class="warn">{{ error }}</p>{% endif %}
+{% set n_match = rows|selectattr('status', 'equalto', 'match')|list|length %}
+{% set n_review = rows|selectattr('status', 'equalto', 'review')|list|length %}
+{% set n_clear = rows|selectattr('status', 'equalto', 'clear')|list|length %}
+{% set n_new = rows|selectattr('status', 'equalto', 'new')|list|length %}
+<div class="screensum">
+  <div class="s-match"><b>{{ n_match }}</b><span>🔴 mos keldi</span></div>
+  <div class="s-review"><b>{{ n_review }}</b><span>🟡 ko'rib chiqing</span></div>
+  <div class="s-clear"><b>{{ n_clear }}</b><span>🟢 topilmadi</span></div>
+  {% if n_new %}<div><b>{{ n_new }}</b><span>⏳ tekshirilmoqda</span></div>{% endif %}
+</div>
+<p class="muted small">{% if lst.checked %}Oxirgi tekshiruv: {{ lst.checked[:16].replace('T', ' ') }} UTC.{% endif %}
+  {% if plan.auto %}Har hafta sanksiya ro'yxatlari yangilangach avtomatik qayta tekshiriladi.{% else %}Avtomatik haftalik tekshiruv — <a href="/business">Biznes tarifida</a>.{% endif %}</p>
+
+<div class="row noprint">
+  <form method="post" action="/screening/{{ lst.id }}/run"><button class="ghost" {{ 'disabled' if running }}>↻ Qayta tekshirish</button></form>
+  <form method="post" action="/screening/{{ lst.id }}/report"><button {{ 'disabled' if running or not rows }}>📄 Hisobot tuzish</button></form>
+  <a class="btnlink ghostlink" href="/screening/{{ lst.id }}/csv">⬇ Excel uchun (CSV)</a>
+</div>
+
+{% if rows %}
+<div class="tablewrap"><table class="facts screentable">
+  <thead><tr><th>Hamkor</th><th>Natija</th><th>Eng yaqin yozuvlar</th><th></th></tr></thead>
+  <tbody>{% for r in rows %}
+  <tr id="i{{ r.id }}" class="st-{{ r.status }}">
+    <td><b>{{ r.name }}</b>{% if r.country %}<div class="small muted">{{ uzname(r.country) }}</div>{% endif %}{% if r.note %}<div class="small muted">{{ r.note }}</div>{% endif %}</td>
+    <td><span class="verdict v-{{ r.status }}">{{ STATUS[r.status] }}</span></td>
+    <td class="small">
+      {% for h in r.hits %}{% set k = key(h) %}{% set off = k in r.dismissed %}
+      <div class="hit{{ ' off' if off }}">
+        <b>{{ h.name }}</b> — {{ h.list }}, {{ KINDS.get(h.kind, h.kind) }}, moslik {{ (100 * h.score)|round|int }}%{% if h.countries %} · {% for c in h.countries[:3] %}{{ uzname(c) }}{{ ', ' if not loop.last }}{% endfor %}{% endif %}{% if h.same_country %} · <b>davlat ham bir xil</b>{% endif %}{% if h.listed %} · {{ h.listed }}{% endif %}
+        {% if off %}<div class="muted">✓ Ko'rib chiqilgan, boshqa shaxs: {{ r.dismissed[k] }}</div>{% endif %}
+        <form method="post" action="/screening/item/{{ r.id }}/dismiss" class="inline noprint">
+          <input type="hidden" name="key" value="{{ k }}">
+          {% if not off %}<input name="why" maxlength="160" placeholder="nega boshqa shaxs (ixtiyoriy)">{% endif %}
+          <button class="ghost small">{{ "Qaytarish" if off else "Bu boshqa shaxs" }}</button>
+        </form>
+      </div>
+      {% else %}{% if r.status == 'new' %}<span class="muted">tekshirilmoqda…</span>{% else %}<span class="muted">Ro'yxatlarda o'xshash nom yo'q</span>{% endif %}{% endfor %}
+    </td>
+    <td class="noprint"><form method="post" action="/screening/item/{{ r.id }}/delete" onsubmit="return confirm('O\'chirilsinmi?')"><button class="ghost small danger" title="O'chirish">✕</button></form></td>
+  </tr>{% endfor %}</tbody>
+</table></div>
+{% endif %}
+
+{% if rows|length < plan['items'] %}
+<details class="card noprint"><summary><b>➕ Nom qo'shish</b></summary>
+  <form method="post" action="/screening/{{ lst.id }}/items" enctype="multipart/form-data" class="stack" style="margin-top:10px">
+    <textarea name="text" rows="4" placeholder="Har qatorda bitta nom; nuqtali vergul bilan davlat"></textarea>
+    <input type="file" name="file" accept=".xlsx,.csv,.txt,.tsv">
+    <button>Qo'shish va tekshirish</button>
+  </form>
+</details>
+{% endif %}
+
+{% if reports %}
+<h3>Hisobotlar</h3>
+<ul class="plain">{% for rp in reports %}<li><a href="/screening/report/{{ rp.code }}">{{ rp.created[:16].replace('T', ' ') }} — № {{ rp.code }}</a></li>{% endfor %}</ul>
+{% endif %}
+
+<form method="post" action="/screening/{{ lst.id }}/delete" class="noprint" onsubmit="return confirm('Ro\'yxat butunlay o\'chirilsinmi?')" style="margin-top:20px">
+  <button class="ghost small danger">Ro'yxatni o'chirish</button></form>
+<p class="warn small">⚖️ Moslik — tekshirish uchun signal, xulosa emas. Rasmiy manbada (OFAC, BMT, YI, Buyuk Britaniya) tug'ilgan sana, manzil va
+  hujjat raqami bilan solishtiring. Bu yuridik maslahat emas.</p>
+{% endblock %}

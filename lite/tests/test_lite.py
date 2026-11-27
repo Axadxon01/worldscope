@@ -20,7 +20,7 @@ import collectors
 NOW = datetime.now(UTC)
 # modules that hold a database handle or settings read at import: reloaded for every test
 MODULES = ("db", "facts", "debt", "telegram_bot", "sanctions", "risk", "framing", "accounts", "watch",
-           "predictions", "trade", "scheduler", "embed", "explain", "relations", "personal", "push", "app")  # fmt: skip
+           "predictions", "trade", "scheduler", "embed", "explain", "relations", "personal", "push", "screening", "app")  # fmt: skip
 
 
 def use_test_db(monkeypatch, tmp_path, name):
@@ -2107,3 +2107,139 @@ def test_russian_interface(client, monkeypatch):
     c.cookies.clear()
     c.cookies.set("ws_lang", "uz")
     assert "Ikki davlat kelishdi" in c.get(f"/story/{g[0]['id']}").text
+
+
+def test_partner_screening_end_to_end(client, monkeypatch):
+    c, app_mod = client
+    S, san = app_mod.screening, app_mod.sanctions
+    san.store("OFAC", [san._record("OFAC", "1", "entity", "ROSOBORONEXPORT", ["Rosoboroneksport OAO"], ["RUS"]),
+                       san._record("OFAC", "2", "person", "IVANOV, Petr", [], ["RUS"])])  # fmt: skip
+    assert (
+        S.clean_name("«Uzbek Trade» MChJ") == "Uzbek Trade" and S.clean_name("OOO Rosoboronexport") == "Rosoboronexport"
+    )
+    rows = S.parse_text("Rosoboronexport OAO; Rossiya; ehtiyot qism\nUzbek Trade MCHJ; O'zbekiston\n\nPetr Ivanov")
+    assert [r["name"] for r in rows] == ["Rosoboronexport OAO", "Uzbek Trade MCHJ", "Petr Ivanov"]
+    assert S.resolve_country("Rossiya") == "RUS" and S.resolve_country("kaz") == "KAZ"
+    csv_rows = S.parse_file("p.csv", "Nomi;Davlat\nAcme LLC;Germany\n".encode("cp1251"))
+    assert csv_rows == [{"name": "Acme LLC", "country": "Germany", "note": ""}]
+    import io
+
+    from openpyxl import Workbook
+
+    wb = Workbook()
+    wb.active.append(["Company", "Country"])
+    wb.active.append(["Rosoboronexport", "Russia"])
+    buf = io.BytesIO()
+    wb.save(buf)
+    assert S.parse_file("p.xlsx", buf.getvalue())[0]["name"] == "Rosoboronexport"
+    with pytest.raises(S.ScreenError):
+        S.parse_file("old.xls", b"x")
+
+    # the page: a list made from pasted text and checked in the background
+    r = c.post("/screening/lists", data={"name": "Xaridorlar", "text": "Rosoboronexport OAO; Rossiya\nUzbek Trade MCHJ\nPetr Ivanov"},
+               follow_redirects=False)  # fmt: skip
+    lid = int(r.headers["location"].rsplit("/", 1)[1])
+    S.run_list(lid)  # what the background task does
+    items = {i["name"]: i for i in S.items(lid)}
+    assert items["Rosoboronexport OAO"]["status"] == "match" and items["Rosoboronexport OAO"]["hits"][0]["same_country"]
+    assert items["Uzbek Trade MCHJ"]["status"] == "clear"
+    assert items["Petr Ivanov"]["status"] in ("match", "review")
+    page = c.get(f"/screening/{lid}").text
+    assert "mos keldi" in page and "ROSOBORONEXPORT" in page
+    assert "ROSOBORONEXPORT" in c.get(f"/screening/{lid}/csv").text
+
+    # a reviewed false match no longer counts, and says who reviewed it
+    petr = items["Petr Ivanov"]
+    c.post(f"/screening/item/{petr['id']}/dismiss", data={"key": "OFAC:2", "why": "tug'ilgan sanasi boshqa"})
+    petr = next(i for i in S.items(lid) if i["name"] == "Petr Ivanov")
+    assert petr["status"] == "clear" and "tug'ilgan sanasi boshqa" in petr["dismissed"]["OFAC:2"]
+
+    # the report, and its public check that shows no names
+    rep = c.post(f"/screening/{lid}/report", follow_redirects=False)
+    code = rep.headers["location"].rsplit("/", 1)[1]
+    text = c.get(f"/screening/report/{code}").text
+    assert code in text and "SHA-256" in text and "sanasi boshqa" in text and "built-in method" not in text
+    ver = c.get(f"/verify/{code}").text
+    assert "haqiqiy" in ver and "Rosoboronexport" not in ver and "built-in method" not in ver
+    with app_mod.db.tx() as cx:
+        cx.execute("UPDATE screen_reports SET data = REPLACE(data, 'match', 'clear') WHERE code = ?", (code,))
+    assert "o'zgartirilgan" in c.get(f"/verify/{code}").text
+    assert "topilmadi" in c.get("/verify/NOPE").text
+
+    # a new match after the lists change raises an alert for a business account
+    with app_mod.db.tx() as cx:
+        cx.execute("UPDATE users SET plan = 'business' WHERE 1=0")  # open mode: the local stand-in is business
+    san.store("UN", [san._record("UN", "9", "entity", "UZBEK TRADE", [], ["UZB"])])
+    notes = []
+
+    async def note(uid, kind, text):
+        notes.append(text)
+
+    monkeypatch.setattr(app_mod, "notify", note)
+    monkeypatch.setattr(S, "due_lists", lambda: [{"id": lid, "user_id": 0, "name": "Xaridorlar"}])
+    res = asyncio_run(app_mod.job_screening())
+    assert res == {"lists": 1, "alerts": 1} and "Uzbek Trade MCHJ" in notes[0] and "MOS KELDI" in notes[0]
+    assert asyncio_run(app_mod.job_screening())["alerts"] == 0  # the same match does not alert twice
+
+
+def test_screening_limits_access_and_business_requests(tmp_path, monkeypatch):
+    app_mod = gated_app(tmp_path, monkeypatch)
+    acc, S = app_mod.accounts, app_mod.screening
+    from fastapi.testclient import TestClient
+
+    with TestClient(app_mod.app, headers={"origin": "http://testserver"}) as c:
+        acc.create("boss", "bosspassword", "admin")
+        assert c.get("/screening", follow_redirects=False).headers["location"].startswith("/login")
+        assert c.get("/business").status_code == 200
+        told = []
+
+        async def tell(text):
+            told.append(text)
+
+        monkeypatch.setattr(app_mod, "_tell_admins", tell)
+        c.post("/business/lead", data={"company": "Artel", "contact": "@artel", "size": "50–200"})
+        assert app_mod.db.one("SELECT company FROM leads")["company"] == "Artel" and "Artel" in told[0]
+        c.post("/register", data={"username": "exporter", "password": "exporter-pw1", "password2": "exporter-pw1"})
+        names = "\n".join(f"Hamkor {i}" for i in range(15))
+        r = c.post("/screening/lists", data={"name": "A", "text": names}, follow_redirects=False)
+        lid = int(r.headers["location"].rsplit("/", 1)[1])
+        assert len(S.items(lid)) == S.PLANS["free"]["items"]  # the free plan stops at 10
+        again = c.post("/screening/lists", data={"name": "B", "text": "X"}, follow_redirects=False)
+        assert "error=" in again.headers["location"]  # and at one list
+        c.post("/logout")
+        c.post("/register", data={"username": "nosy", "password": "nosy-pass-1", "password2": "nosy-pass-1"})
+        assert c.get(f"/screening/{lid}", follow_redirects=False).headers["location"] == "/screening"  # not theirs
+        c.post("/logout")
+        c.post("/login", data={"username": "boss", "password": "bosspassword"})
+        assert "Artel" in c.get("/admin").text
+        c.post("/admin/plan", data={"username": "exporter", "plan": "business"})
+        u = next(x for x in acc.list_users() if x["username"] == "exporter")
+        assert u["plan"] == "business" and S.due_lists()[0]["id"] == lid
+
+
+def test_channel_post(client, monkeypatch):
+    _, app_mod = client
+    groups = app_mod._top_groups(48, 1)
+    post = app_mod.personal.channel_text(groups, {}, app_mod.explain.key, "https://ws.example", "ws_bot")
+    assert "Bugun dunyoda" in post and "https://ws.example/story/" in post and "@ws_bot" in post
+    sent = []
+
+    async def send(chat, text):
+        sent.append(chat)
+        return True
+
+    monkeypatch.setattr(app_mod.telegram_bot, "token", lambda: "t")
+    monkeypatch.setattr(app_mod.telegram_bot, "CHANNEL", "@worldscope_test")
+    monkeypatch.setattr(app_mod.telegram_bot, "send", send)
+
+    async def broadcast(body):
+        return 0
+
+    monkeypatch.setattr(app_mod.telegram_bot, "broadcast", broadcast)
+
+    async def no_refresh():
+        return 0
+
+    monkeypatch.setattr(app_mod, "refresh", no_refresh)
+    res = asyncio_run(app_mod.job_digest(force=True))
+    assert res["channel"] == 1 and "@worldscope_test" in sent

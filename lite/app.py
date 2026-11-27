@@ -46,6 +46,7 @@ import relations
 import risk
 import sanctions
 import scheduler
+import screening
 import telegram_bot
 import trade
 import watch
@@ -315,10 +316,11 @@ def _user_for(request: Request) -> tuple[str, dict | None]:
 
 
 # Reading is open to everyone; an account switches on the personal parts, and a few parts are the admin's.
-PERSONAL_PATHS = ("/watch", "/account", "/push/test")
+PERSONAL_PATHS = ("/watch", "/account", "/push/test", "/screening")
 ADMIN_PATHS = ("/admin", "/sources", "/refresh", "/sanctions/refresh")
 AI_POSTS = ("/pair", "/brief", "/debt", "/framing")  # each one spends the shared daily AI budget
-OPEN_POSTS = ("/prefs", "/login", "/logout", "/register", "/feedback", "/push/subscribe", "/push/unsubscribe")
+OPEN_POSTS = ("/prefs", "/login", "/logout", "/register", "/feedback", "/push/subscribe", "/push/unsubscribe",
+              "/business/lead")  # fmt: skip
 
 
 def _needs(path: str, method: str) -> str:
@@ -823,7 +825,250 @@ def sitemap_xml():
     return Response(xml, media_type="application/xml")
 
 
+# ------------------------------------------------------------------ partner screening (business)
+
+_SCREEN_RUNNING: set[int] = set()
+
+
+def _me(request: Request) -> dict:
+    """The signed-in person with their plan (open mode: a local stand-in, so the page works on a laptop)."""
+    u = request.state.user
+    if u:
+        return accounts.get(u["id"]) | {"username": u["username"]}
+    return {"id": 0, "username": "local", "plan": "business"}
+
+
+async def _run_screen(list_id: int) -> dict:
+    if list_id in _SCREEN_RUNNING:
+        return {"skipped": "allaqachon tekshirilmoqda"}
+    _SCREEN_RUNNING.add(list_id)
+    try:
+        return await asyncio.to_thread(screening.run_list, list_id)
+    finally:
+        _SCREEN_RUNNING.discard(list_id)
+
+
+@app.get("/screening", response_class=HTMLResponse)
+def screening_home(request: Request, msg: str = "", error: str = ""):
+    me = _me(request)
+    return templates.TemplateResponse(
+        request, "screening.html",
+        {"lists": screening.lists_of(me["id"]), "plan": screening.plan(me), "PLANS": screening.PLANS,
+         "msg": msg, "error": error, "loaded": sanctions.loaded()},
+    )  # fmt: skip
+
+
+@app.post("/screening/lists")
+async def screening_create(
+    request: Request,
+    name: str = Form(""),
+    text: str = Form(""),
+    file: UploadFile | None = File(None),  # noqa: B008
+):
+    me = _me(request)
+    try:
+        rows = screening.parse_text(text)
+        if file and file.filename:
+            rows += await asyncio.to_thread(screening.parse_file, file.filename, await file.read(5_000_000))
+        if not rows:
+            raise screening.ScreenError("Kamida bitta nom yozing yoki fayl yuklang.")
+        lid = await asyncio.to_thread(screening.create_list, me, name)
+        await asyncio.to_thread(screening.add_items, me, lid, rows)
+    except screening.ScreenError as e:
+        return RedirectResponse("/screening?error=" + quote_plus(str(e)), 303)
+    _keep(asyncio.create_task(_run_screen(lid)))
+    return RedirectResponse(f"/screening/{lid}", 303)
+
+
+@app.get("/screening/report/{code}", response_class=HTMLResponse)
+def screening_report(request: Request, code: str):
+    r = screening.report(code)
+    if not r or r["user_id"] != _me(request)["id"]:
+        return Response("Hisobot topilmadi", 404)
+    return templates.TemplateResponse(
+        request, "screen_report.html",
+        {"r": r, "d": r["data"], "STATUS": screening.STATUS_UZ, "LISTS": sanctions.LISTS},
+    )  # fmt: skip
+
+
+@app.get("/screening/{list_id}", response_class=HTMLResponse)
+def screening_list(request: Request, list_id: int, msg: str = "", error: str = ""):
+    me = _me(request)
+    try:
+        lst = screening.get_list(list_id, me["id"])
+    except screening.ScreenError:
+        return RedirectResponse("/screening", 303)
+    rows = screening.items(list_id)
+    reports = db.rows(
+        "SELECT code, created FROM screen_reports WHERE list_id = ? ORDER BY id DESC LIMIT 10", (list_id,)
+    )
+    return templates.TemplateResponse(
+        request, "screen_list.html",
+        {"lst": lst, "rows": rows, "plan": screening.plan(me), "STATUS": screening.STATUS_UZ, "msg": msg,
+         "error": error, "running": list_id in _SCREEN_RUNNING or any(r["status"] == "new" for r in rows),
+         "reports": reports, "key": screening.hit_key, "MATCH": screening.MATCH, "KINDS": sanctions.KINDS},
+    )  # fmt: skip
+
+
+@app.get("/screening/{list_id}/csv")
+def screening_csv(request: Request, list_id: int):
+    try:
+        lst = screening.get_list(list_id, _me(request)["id"])
+    except screening.ScreenError:
+        return Response("Topilmadi", 404)
+    body = "\ufeff" + screening.results_csv(list_id)  # the BOM makes Excel read Uzbek letters right
+    name = re.sub(r"[^\w-]+", "_", lst["name"])[:40] or "royxat"
+    return Response(body, media_type="text/csv; charset=utf-8",
+                    headers={"Content-Disposition": f'attachment; filename="tekshiruv_{name}.csv"'})  # fmt: skip
+
+
+@app.post("/screening/{list_id}/items")
+async def screening_add(request: Request, list_id: int, text: str = Form(""), file: UploadFile | None = File(None)):  # noqa: B008
+    me = _me(request)
+    try:
+        rows = screening.parse_text(text)
+        if file and file.filename:
+            rows += await asyncio.to_thread(screening.parse_file, file.filename, await file.read(5_000_000))
+        n = await asyncio.to_thread(screening.add_items, me, list_id, rows)
+    except screening.ScreenError as e:
+        return RedirectResponse(f"/screening/{list_id}?error=" + quote_plus(str(e)), 303)
+    _keep(asyncio.create_task(_run_screen(list_id)))
+    return RedirectResponse(f"/screening/{list_id}?msg=" + quote_plus(f"{n} ta nom qo'shildi"), 303)
+
+
+@app.post("/screening/{list_id}/run")
+async def screening_rerun(request: Request, list_id: int):
+    try:
+        screening.get_list(list_id, _me(request)["id"])
+    except screening.ScreenError:
+        return RedirectResponse("/screening", 303)
+    _keep(asyncio.create_task(_run_screen(list_id)))
+    return RedirectResponse(f"/screening/{list_id}?msg=" + quote_plus("Qayta tekshirilmoqda"), 303)
+
+
+@app.post("/screening/{list_id}/delete")
+def screening_delete(request: Request, list_id: int):
+    with contextlib.suppress(screening.ScreenError):
+        screening.delete_list(_me(request)["id"], list_id)
+    return RedirectResponse("/screening?msg=" + quote_plus("Ro'yxat o'chirildi"), 303)
+
+
+@app.post("/screening/{list_id}/report")
+def screening_make_report(request: Request, list_id: int):
+    try:
+        code = screening.make_report(_me(request), list_id)
+    except screening.ScreenError as e:
+        return RedirectResponse(f"/screening/{list_id}?error=" + quote_plus(str(e)), 303)
+    return RedirectResponse(f"/screening/report/{code}", 303)
+
+
+@app.post("/screening/item/{item_id}/dismiss")
+def screening_dismiss(request: Request, item_id: int, key: str = Form(""), why: str = Form("")):
+    try:
+        lid = screening.dismiss(_me(request), item_id, key, why)
+    except screening.ScreenError:
+        return RedirectResponse("/screening", 303)
+    return RedirectResponse(f"/screening/{lid}#i{item_id}", 303)
+
+
+@app.post("/screening/item/{item_id}/delete")
+def screening_item_delete(request: Request, item_id: int):
+    try:
+        lid = screening.delete_item(_me(request)["id"], item_id)
+    except screening.ScreenError:
+        return RedirectResponse("/screening", 303)
+    return RedirectResponse(f"/screening/{lid}", 303)
+
+
+@app.get("/verify/{code}", response_class=HTMLResponse)
+def verify_report(request: Request, code: str):
+    """Public: a bank or partner checks that a report is real and unchanged, without seeing the names."""
+    return templates.TemplateResponse(request, "verify.html", {"r": screening.report(code), "code": code[:20]})
+
+
+async def job_screening() -> dict:
+    """Every week, after the lists are refreshed: business lists are checked again; new matches alert."""
+    lists = await asyncio.to_thread(screening.due_lists)
+    if not lists:
+        return {"skipped": "biznes ro'yxatlari yo'q"}
+    alerts = 0
+    for lst in lists:
+        res = await _run_screen(lst["id"])
+        for a in res.get("new", [])[:10]:
+            word = "MOS KELDI" if a["status"] == "match" else "ko'rib chiqing"
+            hit = f"{a['hit']['name']} ({a['hit']['list']})"
+            await notify(lst["user_id"], "screening", f"🚨 «{lst['name']}» ro'yxati: {a['name']} — {word}: {hit}")
+            alerts += 1
+    return {"lists": len(lists), "alerts": alerts}
+
+
+# ------------------------------------------------------------------ business page and requests
+
+
+@app.get("/business", response_class=HTMLResponse)
+def business_page(request: Request, sent: int = 0):
+    return templates.TemplateResponse(
+        request, "business.html", {"sent": sent, "PLANS": screening.PLANS, "totals": sanctions.totals()}
+    )
+
+
+@app.post("/business/lead")
+async def business_lead(
+    request: Request, company: str = Form(""), person: str = Form(""), contact: str = Form(""), need: str = Form(""),
+    size: str = Form(""), website: str = Form(""),
+):  # fmt: skip
+    ip, now = _ip(request), time.time()
+    recent = [t for t in _FEEDBACK.get("lead:" + ip, []) if now - t < 3600]
+    if website or not company.strip() or not contact.strip() or len(recent) >= FEEDBACK_PER_HOUR:
+        return RedirectResponse("/business#sorov", 303)
+    _FEEDBACK["lead:" + ip] = [*recent, now]
+    who = request.state.user["username"] if request.state.user else ""
+    with db.tx() as c:
+        c.execute(
+            "INSERT INTO leads (created, company, person, contact, need, size, who) VALUES (?,?,?,?,?,?,?)",
+            (collectors.now_iso(), company.strip()[:120], person.strip()[:120], contact.strip()[:160],
+             need.strip()[:1500], size.strip()[:40], who),
+        )  # fmt: skip
+    await _tell_admins(
+        f"💼 <b>Yangi biznes so'rov</b>\n{escape(company[:120])} — {escape(contact[:160])}\n{escape(need[:400])}"
+    )
+    return RedirectResponse("/business?sent=1#sorov", 303)
+
+
+@app.post("/admin/plan")
+def admin_set_plan(request: Request, username: str = Form(""), plan: str = Form("free")):
+    if not _is_admin(request):
+        return Response("Faqat administrator uchun", 403)
+    u = db.one("SELECT id FROM users WHERE LOWER(username) = LOWER(?)", (username.strip(),))
+    if not u or plan not in screening.PLANS:
+        return RedirectResponse("/admin?error=" + quote_plus("Foydalanuvchi yoki tarif topilmadi") + "#tariflar", 303)
+    with db.tx() as c:
+        c.execute("UPDATE users SET plan = ? WHERE id = ?", (plan, u["id"]))
+        c.execute(
+            "UPDATE screen_lists SET auto = ? WHERE user_id = ?", (1 if screening.PLANS[plan]["auto"] else 0, u["id"])
+        )
+    return RedirectResponse(
+        "/admin?msg=" + quote_plus(f"{username}: {screening.PLANS[plan]['label']} tarifi") + "#tariflar", 303
+    )
+
+
+@app.post("/admin/leads/{lid}/done")
+def admin_lead_done(request: Request, lid: int):
+    if not _is_admin(request):
+        return Response("Faqat administrator uchun", 403)
+    with db.tx() as c:
+        c.execute("UPDATE leads SET done = 1 WHERE id = ?", (lid,))
+    return RedirectResponse("/admin#tariflar", 303)
+
+
 TOOLS = [  # (path, icon, name, what it answers, admin only)
+    (
+        "/screening",
+        "🛡️",
+        "Hamkorlarni tekshirish",
+        "Hamkorlaringiz ro'yxatini yuklang — sanksiyalarda bormi, har hafta tekshiramiz.",
+        False,
+    ),
     ("/news", "📰", "Barcha yangiliklar", "Hamma xabarlar: qidirish, mavzu va davlat bo'yicha saralash.", False),
     ("/pair", "⚖️", "Ikki davlat", "Ikki davlat o'rtasida nima bo'lyapti va keyin nima bo'lishi mumkin?", False),
     ("/risk", "🧭", "Xavf indeksi", "Qaysi davlat bilan ishlash xavfliroq? 0 dan 100 gacha ball.", False),
@@ -1538,7 +1783,12 @@ async def job_digest(force: bool = False) -> dict:
             if text:
                 personal_sent += await telegram_bot.send(u["tg_chat"], text)
     pushed = await asyncio.to_thread(_push_morning, groups, lines)
-    return {"sent": sent, "personal": personal_sent, "push": pushed, "model": model}
+    channel = 0
+    if telegram_bot.enabled() and telegram_bot.CHANNEL:  # the public channel: growth, not a subscription
+        post = personal.channel_text(groups, lines, explain.key, telegram_bot.PUBLIC_URL, telegram_bot.username())
+        if post:
+            channel = int(await telegram_bot.send(telegram_bot.CHANNEL, post))
+    return {"sent": sent, "personal": personal_sent, "push": pushed, "channel": channel, "model": model}
 
 
 def _user_prefs(user_id: int) -> tuple[list[str], list[str]]:
@@ -1805,6 +2055,7 @@ async def job_explain() -> dict:
 
 
 JOBS = {
+    "screening": lambda: job_screening(),  # defined with the screening pages above
     "backup": lambda: job_backup(),  # defined with the other backup code below
     "refresh": job_refresh,
     "explain": job_explain,
@@ -2031,7 +2282,9 @@ def _admin_ctx(request: Request, **extra) -> dict:
         "users": accounts.list_users(), "me": request.state.user, "jobs": last, "EVERY": scheduler.EVERY,
         "embed": embed.status(), "sanc": sanctions.status(), "db_desc": db.describe(),
         "ai_used": ai_used_today(), "preds": predictions.stats(), "visits": personal.visit_stats(),
-        "feedback": db.rows("SELECT * FROM feedback ORDER BY done, id DESC LIMIT 40"), **extra,
+        "feedback": db.rows("SELECT * FROM feedback ORDER BY done, id DESC LIMIT 40"),
+        "leads": db.rows("SELECT * FROM leads ORDER BY done, id DESC LIMIT 40"), "PLANS": screening.PLANS,
+        "paying": db.rows("SELECT username, plan FROM users WHERE plan != 'free' ORDER BY username"), **extra,
     }  # fmt: skip
 
 
@@ -2112,7 +2365,8 @@ async def _run_one(job: str) -> None:
 
 BACKUP_TABLES = ["users", "watch_items", "alerts", "pairs", "pair_history", "maps", "briefs", "debt_reports",
                  "framings", "predictions", "prediction_votes", "feedback", "push_subs", "digests", "tg_subscribers",
-                 "tg_follows", "sources", "meta"]  # fmt: skip
+                 "tg_follows", "sources", "meta", "screen_lists", "screen_items", "screen_reports",
+                 "leads"]  # fmt: skip
 
 
 def _backup_json() -> str:
@@ -2179,11 +2433,17 @@ def _import_tables(tables: dict) -> int:
             rows = tables.get(t) or []
             if not rows:
                 continue
-            cols = [k for k in rows[0] if re.fullmatch(r"[a-z_]+", k) and k != "id"]
+            # ids are kept: other tables point at them (a watch item at its user, a screened name at its list)
+            cols = [k for k in rows[0] if re.fullmatch(r"[a-z_]+", k)]
             sql = f"INSERT INTO {t} ({', '.join(cols)}) VALUES ({', '.join('?' * len(cols))}) ON CONFLICT DO NOTHING"
             for r in rows:
                 cur = c.execute(sql, [r.get(k) for k in cols])
                 added += cur.rowcount or 0
+            if db.IS_PG and "id" in cols:  # the next new row must not reuse an imported id
+                c.execute(
+                    f"SELECT setval(pg_get_serial_sequence('{db.PG_SCHEMA}.{t}', 'id'), "
+                    f"COALESCE((SELECT MAX(id) FROM {t}), 1))"
+                )
     return added
 
 

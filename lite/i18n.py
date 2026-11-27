@@ -133,6 +133,9 @@ RU = {
     "AI tahlil": "ИИ-анализ", "Tanlagan mavzuingiz bo'yicha manbali qisqa tahlil.": "Краткий анализ с источниками по вашей теме.",
     "Manbalar": "Источники", "Yangiliklar qayerdan yig'iladi; manba qo'shish va o'chirish.":
         "Откуда собираются новости; добавить и убрать источник.",
+    "Hamkorlarni tekshirish": "Проверка контрагентов",
+    "Hamkorlaringiz ro'yxatini yuklang — sanksiyalarda bormi, har hafta tekshiramiz.": "Загрузите список контрагентов — проверим по санкционным спискам и будем перепроверять каждую неделю.",
+    "Biznes uchun": "Для бизнеса",
     # quiz
     "🧩 Haftalik test": "🧩 Тест недели",
     "Bu haftaning testi hali tayyor emas": "Тест этой недели ещё не готов",
