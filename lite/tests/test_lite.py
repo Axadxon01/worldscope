@@ -20,7 +20,7 @@ import collectors
 NOW = datetime.now(UTC)
 # modules that hold a database handle or settings read at import: reloaded for every test
 MODULES = ("db", "facts", "debt", "telegram_bot", "sanctions", "risk", "framing", "accounts", "watch",
-           "predictions", "trade", "scheduler", "embed", "explain", "app")  # fmt: skip
+           "predictions", "trade", "scheduler", "embed", "explain", "relations", "app")  # fmt: skip
 
 
 def use_test_db(monkeypatch, tmp_path, name):
@@ -1852,3 +1852,49 @@ def test_retired_default_source_is_switched_off_once(client):
     row = app_mod.db.one("SELECT enabled FROM sources WHERE value = 'https://www.arabnews.com/rss.xml'")
     assert row is None or row["enabled"] == 0
     assert app_mod.db.one("SELECT 1 AS x FROM sources WHERE value = 'site:arabnews.com'")
+
+
+def test_every_country_shows_its_ties(client, monkeypatch):
+    c, app_mod = client
+    R = app_mod.relations
+    now = datetime.now(UTC).isoformat()
+    arts = [
+        {"title": f"Kazakhstan and Uzbekistan talk {i}", "url": f"https://x/{i}", "publisher": f"p{i}", "published": now,
+         "countries": ["UZB", "KAZ"], "categories": ["diplomacy"]} for i in range(3)
+    ] + [{"title": "one-off", "url": "https://x/9", "publisher": "p", "published": now,
+          "countries": ["UZB", "BRA"], "categories": []}]  # fmt: skip
+    news = R.from_news("UZB", arts)
+    assert [(x["to"], x["type"], x["count"], x["topic"]) for x in news] == [
+        ("KAZ", "news", 3, "diplomatiya")
+    ]  # a single story is too little
+    flows = {
+        "year": 2025,
+        "exports": {"partners": [["RUS", 3.4e9], ["KAZ", 1e9]]},
+        "imports": {"partners": [["CHN", 14e9]]},
+    }
+    tr = R.from_trade("UZB", flows)
+    assert tr[0]["from"] == "CHN" and tr[0]["to"] == "UZB" and "mlrd $" in tr[0]["bubble"]
+    with app_mod.db.tx() as cx:
+        cx.execute(
+            "INSERT INTO maps (created, lang, hours, focus, model, data) VALUES (?,?,?,?,?,?)",
+            (now, "uz", 24, "", "m", json.dumps({"summary": "", "links": [
+                {"from": "KAZ", "to": "UZB", "type": "cooperation", "title": "Suv", "bubble": "Suv bo'yicha kelishuv"}]})),
+        )  # fmt: skip
+    links = R.build("UZB", arts, flows)
+    by = {(x["to"] if x["from"] == "UZB" else x["from"]): x for x in links}
+    assert by["KAZ"]["src"] == "ai" and by["KAZ"]["type"] == "cooperation"  # the AI map wins over news for a partner
+    assert by["RUS"]["src"] == by["CHN"]["src"] == "trade" and len(links) == len(by)
+    assert "3 ta davlat" in R.summary("UZB", links)
+
+    async def flows_ok(iso, force=False):
+        return flows
+
+    monkeypatch.setattr(
+        app_mod.trade, "flows", flows_ok
+    )  # a quiet country gets its trade partners fetched (patched: no network)
+    r = c.get("/api/relations/uzb").json()
+    assert any(x["src"] == "trade" for x in r["links"])
+    assert r["iso"] == "UZB" and any(x["src"] == "ai" for x in r["links"]) and r["summary"]
+    assert c.get("/api/relations/XXX").status_code == 404
+    assert "Boshqa davlatlar bilan aloqalari" in c.get("/country/UZB").text
+    assert 'id="reliso"' in c.get("/map?c=UZB").text

@@ -37,6 +37,7 @@ import facts
 import framing
 import pairs
 import predictions
+import relations
 import risk
 import sanctions
 import scheduler
@@ -605,7 +606,7 @@ async def make_brief(lang: str = Form("uz"), hours: str = Form("24"), focus: str
 
 
 @app.get("/map", response_class=HTMLResponse)
-def map_page(request: Request, id: int | None = None, error: str = "", hours: str = "48", trade: str = ""):
+def map_page(request: Request, id: int | None = None, error: str = "", hours: str = "48", trade: str = "", c: str = ""):
     maps = db.rows("SELECT id, created, lang, hours, focus, auto FROM maps ORDER BY id DESC LIMIT 20")
     if id:
         current = db.one("SELECT * FROM maps WHERE id=?", (id,))
@@ -638,6 +639,7 @@ def map_page(request: Request, id: int | None = None, error: str = "", hours: st
         "cats": {k: v[0] for k, v in analyze.CATEGORIES.items()},
         "fresh": diff["new"] if diff else [],
         "trade": trade.upper()[:3] if pairs.valid(trade.upper()[:3]) else "",
+        "c": c.upper()[:3] if c.upper()[:3] in analyze.COUNTRY_INFO else "",
     }
     return templates.TemplateResponse(
         request,
@@ -1799,6 +1801,7 @@ async def country_page(request: Request, iso: str = ""):
     links = []
     if latest:
         links = [x for x in json.loads(latest["data"])["links"] if iso in (x.get("from"), x.get("to"))]
+    rel = await asyncio.to_thread(relations.build, iso, arts, tr)
     pair_rows = await asyncio.to_thread(
         db.rows, "SELECT a, b, c, lang, created, data FROM pairs WHERE a = ? OR b = ? ORDER BY created DESC LIMIT 12",
         (iso, iso),
@@ -1821,7 +1824,7 @@ async def country_page(request: Request, iso: str = ""):
     debt_rows = debt.view(dt)["debt_rows"][:3] if dt else []
     payload = {
         "geo": {v["name"]: k for k, v in analyze.COUNTRY_INFO.items()},
-        "links": links, "coords": COORDS, "focus": iso,
+        "links": rel, "coords": COORDS, "focus": iso,
         "names": {k: analyze.display_name(k) for k in analyze.COUNTRY_INFO},
     }  # fmt: skip
     return templates.TemplateResponse(
@@ -1831,6 +1834,7 @@ async def country_page(request: Request, iso: str = ""):
             "iso": iso, "name": analyze.display_name, "en": analyze.COUNTRY_INFO[iso]["name"], "tier": pairs.tier(iso),
             "flag": "".join(chr(0x1F1E6 + ord(ch) - 65) for ch in debt.ISO2.get(iso, "")),
             "risk_text": explain.risk_sentence(r, analyze.display_name(iso)), "stale": explain.stale,
+            "rel": rel, "rel_text": relations.summary(iso, rel),
             "TIER_SHORT": pairs.TIER_SHORT, "wb": wb, "INDICATORS": facts.INDICATORS, "human": facts.human,
             "r": r, "debt_rows": debt_rows, "debt_wait": dt is None, "sanc": sanctions.stats().get(iso),
             "flows": tr, "trade_top": trade.top, "groups": groups, "links": links, "pairs_list": pair_list,
@@ -1878,6 +1882,26 @@ async def predictions_check(request: Request, pid: int):
 
 
 # ------------------------------------------------------------------ data for the globe
+
+
+async def _relations(iso: str) -> tuple[list[dict], str]:
+    arts = await asyncio.to_thread(_articles, KEEP_DAYS * 24, "", "", "", iso)
+    flows = await asyncio.to_thread(db.cache_get, f"flows:{iso}", trade.CACHE_DAYS)
+    links = await asyncio.to_thread(relations.build, iso, arts, flows)
+    quiet = not flows and len(links) < 6 and pairs.valid(iso)  # a quiet country: its trade partners fill the globe
+    if quiet and (flows := await _soon(trade.flows(iso), 15)):
+        links = await asyncio.to_thread(relations.build, iso, arts, flows)
+    return links, relations.summary(iso, links)
+
+
+@app.get("/api/relations/{iso}")
+async def api_relations(iso: str):
+    """Every tie of one country we know about, for the globe: AI maps, shared news, trade."""
+    iso = iso.upper()[:3]
+    if iso not in analyze.COUNTRY_INFO:
+        return JSONResponse({"error": "davlat"}, status_code=404)
+    links, text = await _relations(iso)
+    return {"iso": iso, "name": analyze.display_name(iso), "summary": text, "links": links}
 
 
 @app.get("/api/trade/{iso}")
